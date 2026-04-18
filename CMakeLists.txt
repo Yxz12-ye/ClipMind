@@ -1,14 +1,11 @@
 cmake_minimum_required(VERSION 3.16)
-project(CppTemplate
+project(ClipMind
     VERSION 0.1.0
-    DESCRIPTION "Lightweight cross-platform C++ template"
-    LANGUAGES CXX
+    DESCRIPTION "Lightweight cross-platform C++ Clipboard Manager"
+    LANGUAGES C CXX
 )
 
-# ============================================================================
-# Global Settings
-# ============================================================================
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -23,52 +20,37 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
-# ============================================================================
-# Options
-# ============================================================================
 option(ENABLE_WARNINGS "Enable compiler warnings" ON)
 option(ENABLE_TESTING "Enable testing" OFF)
-option(CMAKE_USE_VCPKG "Use vcpkg package manager" OFF)
+option(CMAKE_USE_VCPKG "Use vcpkg package manager" ON)
 
-# ============================================================================
-# Vcpkg Support (Optional)
-# ============================================================================
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/use_vcpkg.cmake)
 
-# ============================================================================
-# Compiler Warnings
-# ============================================================================
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/compiler_warnings.cmake)
 
-# ============================================================================
-# Configure Header
-# ============================================================================
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/src/config.hpp.in
     ${CMAKE_CURRENT_BINARY_DIR}/generated/config.hpp
     @ONLY
 )
 
-# ============================================================================
-# Source Files
-# ============================================================================
 set(SOURCES
     src/main.cpp
-    src/app/app.cpp
-    src/utils/logger.cpp
-    src/utils/string_utils.cpp
 )
 
 set(HEADERS
-    src/app/app.hpp
-    src/utils/logger.hpp
-    src/utils/string_utils.hpp
+    
 )
 
-# ============================================================================
-# Target
-# ============================================================================
+find_package(spdlog CONFIG REQUIRED)
+find_package(unofficial-sqlite3 CONFIG REQUIRED)
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/sqlite-vec.cmake)
+
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+
+target_link_libraries(${PROJECT_NAME} PRIVATE spdlog::spdlog)
+target_link_libraries(${PROJECT_NAME} PRIVATE unofficial::sqlite3::sqlite3)
+target_link_libraries(${PROJECT_NAME} PRIVATE sqlite_vec)
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
@@ -79,16 +61,10 @@ if(ENABLE_WARNINGS)
     target_link_libraries(${PROJECT_NAME} PRIVATE project_warnings)
 endif()
 
-# ============================================================================
-# Installation
-# ============================================================================
 install(TARGETS ${PROJECT_NAME}
     RUNTIME DESTINATION bin
 )
 
-# ============================================================================
-# Testing (Optional)
-# ============================================================================
 if(ENABLE_TESTING)
     enable_testing()
 
