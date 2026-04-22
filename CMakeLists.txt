@@ -9,6 +9,8 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_AUTOMOC ON)
+set(CMAKE_AUTORCC ON)
 
 # Default build type
 if(NOT CMAKE_BUILD_TYPE)
@@ -44,6 +46,12 @@ set(HEADERS
 
 find_package(spdlog CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
+find_package(
+    Qt6
+    COMPONENTS Core Gui Widgets
+    CONFIG
+    REQUIRED
+)
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/sqlite-vec.cmake)
 
 add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
@@ -51,6 +59,7 @@ add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
 target_link_libraries(${PROJECT_NAME} PRIVATE spdlog::spdlog)
 target_link_libraries(${PROJECT_NAME} PRIVATE unofficial::sqlite3::sqlite3)
 target_link_libraries(${PROJECT_NAME} PRIVATE sqlite_vec)
+target_link_libraries(${PROJECT_NAME} PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
