@@ -36,30 +36,36 @@ configure_file(
     @ONLY
 )
 
-set(SOURCES
-    src/main.cpp
+file(GLOB_RECURSE SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.c"
 )
 
-set(HEADERS
-    
+file(GLOB_RECURSE HEADERS
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.hpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
 )
+
+set(RESOURCES ${CMAKE_CURRENT_SOURCE_DIR}/assets/resources.qrc)
 
 find_package(spdlog CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
 find_package(
     Qt6
-    COMPONENTS Core Gui Widgets
+    COMPONENTS Core Gui Widgets SvgWidgets
     CONFIG
     REQUIRED
 )
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/sqlite-vec.cmake)
 
-add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+qt_add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
+
+target_sources(${PROJECT_NAME} PRIVATE ${RESOURCES})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE spdlog::spdlog)
 target_link_libraries(${PROJECT_NAME} PRIVATE unofficial::sqlite3::sqlite3)
 target_link_libraries(${PROJECT_NAME} PRIVATE sqlite_vec)
-target_link_libraries(${PROJECT_NAME} PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets)
+target_link_libraries(${PROJECT_NAME} PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::SvgWidgets)
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src
