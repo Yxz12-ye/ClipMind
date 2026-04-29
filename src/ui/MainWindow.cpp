@@ -6,6 +6,7 @@
 void MainWindow::setupUI() {
     layout.setContentsMargins(QMargins(0,0,0,0));
     layout.addWidget(&head);
+    layout.addWidget(&tagListView);
     layout.addStretch();
 }
 
@@ -34,12 +35,18 @@ void MainWindow::applyTheme() {
     ).arg(background, foreground, hover));
 }
 
-MainWindow::MainWindow() : central(this), head(&central), layout(&central) {
+MainWindow::MainWindow() : central(this), head(&central), layout(&central), tagListView(this) {
     setWindowFlag(Qt::FramelessWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
     setFixedSize(360, 400);
     central.setObjectName("centralPanel");
     central.setAttribute(Qt::WA_StyledBackground, true);
+
+    model = new QStandardItemModel(this);
+    tagListView.setModel(model);
+    tagListView.setSelectionMode(QAbstractItemView::SingleSelection);
+    tagListView.setStyleSheet("QListView { background: transparent; }");
+
     applyTheme();
     setCentralWidget(&central);
     connect(&head, &CustomHead::closeRequested, this, &QWidget::close);

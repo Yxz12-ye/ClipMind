@@ -3,6 +3,8 @@
 #include <QMainWindow>
 #include <QWidget>
 #include "./CustomHead.hpp"
+#include "./TagWidget.hpp"
+#include <QStandardItemModel>
 
 #include <QVBoxLayout>
 
@@ -10,6 +12,8 @@ class MainWindow : public QMainWindow {
 private:
     QWidget central;
     CustomHead head;
+    TagListView tagListView;
+    QStandardItemModel* model;
     QVBoxLayout layout;
 
     void setupUI();
