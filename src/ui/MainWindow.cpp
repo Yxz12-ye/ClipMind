@@ -6,13 +6,14 @@
 void MainWindow::setupUI() {
     layout.setContentsMargins(QMargins(0,0,0,0));
     layout.addWidget(&head);
+    layout.addWidget(&searchWidget);
     layout.addWidget(&tagListView);
     layout.addStretch();
 }
 
 void MainWindow::applyTheme() {
     const bool darkMode = palette().color(QPalette::Window).lightness() < 128;
-    const QString background = darkMode ? "#1C1C1C" : "#F7F7F8";
+    const QString background = darkMode ? "#1C1C1C" : "#FFFFFF";
     const QString foreground = darkMode ? "#F5F5F5" : "#111827";
     const QString hover = darkMode ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.06)";
 
@@ -35,7 +36,7 @@ void MainWindow::applyTheme() {
     ).arg(background, foreground, hover));
 }
 
-MainWindow::MainWindow() : central(this), head(&central), layout(&central), tagListView(this) {
+MainWindow::MainWindow() : central(this), head(&central), layout(&central), tagListView(this), searchWidget(this) {
     setWindowFlag(Qt::FramelessWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
     setFixedSize(360, 400);

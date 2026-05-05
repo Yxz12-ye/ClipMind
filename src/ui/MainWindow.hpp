@@ -4,6 +4,7 @@
 #include <QWidget>
 #include "./CustomHead.hpp"
 #include "./TagWidget.hpp"
+#include "./SearchWidget.hpp"
 #include <QStandardItemModel>
 
 #include <QVBoxLayout>
@@ -12,6 +13,7 @@ class MainWindow : public QMainWindow {
 private:
     QWidget central;
     CustomHead head;
+    SearchWidget searchWidget;
     TagListView tagListView;
     QStandardItemModel* model;
     QVBoxLayout layout;
