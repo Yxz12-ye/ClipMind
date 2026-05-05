@@ -23,17 +23,19 @@ void TagDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option,
 
     // 选择背景色和文字色（选中效果）
     QColor bgColor, textColor;
+    QPen borderPen(Qt::NoPen);
     if (option.state & QStyle::State_Selected) {
         bgColor = QColor("#3B82F6");
         textColor = Qt::white;
     } else {
-        bgColor = QColor("#ffffff");
-        textColor = Qt::black;
+        bgColor = QColor("#FFFFFF");
+        textColor = QColor("#1E293B");
+        borderPen = QPen(QColor("#E2E8F0"));
     }
 
     // 绘制圆角矩形背景
     painter->setBrush(bgColor);
-    painter->setPen(Qt::NoPen);
+    painter->setPen(borderPen);
     painter->drawRoundedRect(rect, 13, 13);
 
     // 绘制文字
@@ -44,7 +46,7 @@ void TagDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option,
     painter->restore();
 }
 
-TagListView::TagListView(QWidget* parent) {
+TagListView::TagListView(QWidget* parent) : QListView(parent) {
     setFlow(QListView::LeftToRight);
     setWrapping(false);
     setFrameShape(QFrame::NoFrame);
