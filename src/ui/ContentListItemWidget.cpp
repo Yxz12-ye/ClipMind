@@ -8,17 +8,8 @@
 #include <QVBoxLayout>
 
 namespace {
-QString badgeTextForKind(ContentItemKind kind) {
-    switch (kind) {
-    case ContentItemKind::Text:
-        return "TEXT";
-    case ContentItemKind::Link:
-        return "LINK";
-    case ContentItemKind::Code:
-        return "CODE";
-    }
-
-    return "TEXT";
+QString badgeTextForKind(ContentKind kind) {
+    return contentKindToBadgeText(kind);
 }
 }
 
@@ -76,16 +67,16 @@ void ContentListItemWidget::setItemData(const ContentListItemData& data) {
     QColor bodyColor("#1E293B");
 
     switch (data.kind) {
-    case ContentItemKind::Text:
+    case ContentKind::Text:
         m_badgeBackground = QColor("#EFF6FF");
         m_badgeForeground = QColor("#3B82F6");
         break;
-    case ContentItemKind::Link:
+    case ContentKind::Link:
         m_badgeBackground = QColor("#F0FDF4");
         m_badgeForeground = QColor("#16A34A");
         bodyColor = QColor("#3B82F6");
         break;
-    case ContentItemKind::Code:
+    case ContentKind::Code:
         m_badgeBackground = QColor("#FEF9C3");
         m_badgeForeground = QColor("#CA8A04");
         break;

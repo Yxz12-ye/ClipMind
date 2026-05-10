@@ -4,14 +4,10 @@
 #include <QString>
 #include <QWidget>
 
-enum class ContentItemKind {
-    Text,
-    Link,
-    Code,
-};
+#include "domain/ContentKind.hpp"
 
 struct ContentListItemData {
-    ContentItemKind kind;
+    ContentKind kind;
     QString timeText;
     QString bodyText;
     bool elevated = false;
