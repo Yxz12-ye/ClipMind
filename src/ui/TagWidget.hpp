@@ -5,8 +5,18 @@
 #include <QStyledItemDelegate>
 #include <QSize>
 #include <QPainter>
+#include <QTime>
 
 class TagDelegate;
+
+struct Tag
+{
+    QString displayName;
+    QString description;
+    QColor color;
+
+    Tag(QString name, QString d):displayName(name), description(d){}
+};
 
 class TagListView : public QListView
 {

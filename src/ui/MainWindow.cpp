@@ -41,18 +41,18 @@ void MainWindow::applyTheme() {
 
 void MainWindow::populateDemoData() {
     model->clear();
-    const QStringList tags = {QStringLiteral("全部"), QStringLiteral("文本"), QStringLiteral("链接")};
-    for (const QString& tag : tags) {
-        model->appendRow(new QStandardItem(tag));
+    const std::vector<Tag> taglist = {{"TEXT","文本"}, {"CODE","代码"},{"LINK","链接"}};
+    for (const Tag& tag : taglist) {
+        model->appendRow(new QStandardItem(tag.displayName));
     }
     const QModelIndex firstTag = model->index(0, 0);
     tagListView.setCurrentIndex(firstTag);
     tagListView.selectionModel()->select(firstTag, QItemSelectionModel::ClearAndSelect);
 
     contentList.setItems({
-        {ContentItemKind::Text, "刚刚", "设计评审会议提前到 15:30，请同步到群里。本条信息已自动同步至云端。", true},
-        {ContentItemKind::Link, "12 分钟前", "https://github.com/google-gemini/clipmind"},
-        {ContentItemKind::Code, "2 小时前", "git clone https://github.com/google-gemini/clipmind.git"},
+        {SysContentItemKind::Text, "刚刚", "设计评审会议提前到 15:30，请同步到群里。本条信息已自动同步至云端。", true},
+        {SysContentItemKind::Link, "12 分钟前", "https://github.com/google-gemini/clipmind"},
+        {SysContentItemKind::Code, "2 小时前", "git clone https://github.com/google-gemini/clipmind.git"},
     });
 }
 

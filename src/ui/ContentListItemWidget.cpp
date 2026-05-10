@@ -8,13 +8,13 @@
 #include <QVBoxLayout>
 
 namespace {
-QString badgeTextForKind(ContentItemKind kind) {
+QString badgeTextForKind(SysContentItemKind kind) {
     switch (kind) {
-    case ContentItemKind::Text:
+    case SysContentItemKind::Text:
         return "TEXT";
-    case ContentItemKind::Link:
+    case SysContentItemKind::Link:
         return "LINK";
-    case ContentItemKind::Code:
+    case SysContentItemKind::Code:
         return "CODE";
     }
 
@@ -72,20 +72,20 @@ ContentListItemWidget::ContentListItemWidget(QWidget* parent)
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
 }
 
-void ContentListItemWidget::setItemData(const ContentListItemData& data) {
+void ContentListItemWidget::setItemData(const SysContentListItemData& data) {
     QColor bodyColor("#1E293B");
 
     switch (data.kind) {
-    case ContentItemKind::Text:
+    case SysContentItemKind::Text:
         m_badgeBackground = QColor("#EFF6FF");
         m_badgeForeground = QColor("#3B82F6");
         break;
-    case ContentItemKind::Link:
+    case SysContentItemKind::Link:
         m_badgeBackground = QColor("#F0FDF4");
         m_badgeForeground = QColor("#16A34A");
         bodyColor = QColor("#3B82F6");
         break;
-    case ContentItemKind::Code:
+    case SysContentItemKind::Code:
         m_badgeBackground = QColor("#FEF9C3");
         m_badgeForeground = QColor("#CA8A04");
         break;
@@ -102,7 +102,7 @@ void ContentListItemWidget::setItemData(const ContentListItemData& data) {
         existingEffect->deleteLater();
     }
 
-    if (data.elevated) {
+    if (data.pinned) {
         auto* shadow = new QGraphicsDropShadowEffect(this);
         shadow->setBlurRadius(8.0);
         shadow->setOffset(0.0, 2.0);

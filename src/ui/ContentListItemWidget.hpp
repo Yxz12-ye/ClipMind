@@ -3,19 +3,29 @@
 #include <QColor>
 #include <QString>
 #include <QWidget>
+#include "./TagWidget.hpp"
 
-enum class ContentItemKind {
+enum class SysContentItemKind {
     Text,
     Link,
     Code,
 };
 
-struct ContentListItemData {
-    ContentItemKind kind;
+struct SysContentListItemData {
+    SysContentItemKind kind;
     QString timeText;
     QString bodyText;
-    bool elevated = false;
+    bool pinned = false;
 };
+
+struct UsrContentListItemData
+{
+    SysContentItemKind kind;
+    QString timeText;
+    QString bodyText;
+    bool pinned = false;
+};
+
 
 class QLabel;
 class QVBoxLayout;
@@ -25,7 +35,7 @@ class ContentListItemWidget final : public QWidget {
 public:
     explicit ContentListItemWidget(QWidget* parent = nullptr);
 
-    void setItemData(const ContentListItemData& data);
+    void setItemData(const SysContentListItemData& data);
 
 private:
     QWidget* m_badgeContainer;
