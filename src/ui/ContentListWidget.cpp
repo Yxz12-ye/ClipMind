@@ -33,7 +33,7 @@ ContentListWidget::ContentListWidget(QWidget* parent)
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 }
 
-void ContentListWidget::setItems(const QVector<SysContentListItemData>& items) {
+void ContentListWidget::setItems(const QVector<ContentListItemData>& items) {
     clearItems();
 
     for (const auto& item : items) {

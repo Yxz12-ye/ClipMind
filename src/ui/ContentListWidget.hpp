@@ -12,7 +12,7 @@ class ContentListWidget final : public QWidget {
 public:
     explicit ContentListWidget(QWidget* parent = nullptr);
 
-    void setItems(const QVector<SysContentListItemData>& items);
+    void setItems(const QVector<ContentListItemData>& items);
 
 private:
     QWidget* m_contentWidget;

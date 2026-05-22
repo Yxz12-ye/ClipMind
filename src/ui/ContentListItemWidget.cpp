@@ -7,21 +7,6 @@
 #include <QPalette>
 #include <QVBoxLayout>
 
-namespace {
-QString badgeTextForKind(SysContentItemKind kind) {
-    switch (kind) {
-    case SysContentItemKind::Text:
-        return "TEXT";
-    case SysContentItemKind::Link:
-        return "LINK";
-    case SysContentItemKind::Code:
-        return "CODE";
-    }
-
-    return "TEXT";
-}
-}
-
 ContentListItemWidget::ContentListItemWidget(QWidget* parent)
     : QWidget(parent),
       m_badgeContainer(new QWidget(this)),
@@ -72,28 +57,18 @@ ContentListItemWidget::ContentListItemWidget(QWidget* parent)
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
 }
 
-void ContentListItemWidget::setItemData(const SysContentListItemData& data) {
+void ContentListItemWidget::setItemData(const ContentListItemData& data) {
     QColor bodyColor("#1E293B");
 
-    switch (data.kind) {
-    case SysContentItemKind::Text:
-        m_badgeBackground = QColor("#EFF6FF");
-        m_badgeForeground = QColor("#3B82F6");
-        break;
-    case SysContentItemKind::Link:
-        m_badgeBackground = QColor("#F0FDF4");
-        m_badgeForeground = QColor("#16A34A");
-        bodyColor = QColor("#3B82F6");
-        break;
-    case SysContentItemKind::Code:
-        m_badgeBackground = QColor("#FEF9C3");
-        m_badgeForeground = QColor("#CA8A04");
-        break;
-    }
+    m_badgeBackground = data.tag.tagBackColor;
+    m_badgeForeground = data.tag.tagNameColor;
 
-    m_badgeLabel->setText(badgeTextForKind(data.kind));
-    m_timeLabel->setText(data.timeText);
-    m_bodyLabel->setText(data.bodyText);
+    m_copyTime = data.copyTime;
+    m_updateTime = data.updateTime;
+
+    m_badgeLabel->setText(data.tag.tagName);
+    updateTime();
+    m_bodyLabel->setText(data.content);
     m_bodyLabel->setStyleSheet(QString("color: %1;").arg(bodyColor.name()));
     updateBadgeStyle();
 
@@ -120,4 +95,47 @@ void ContentListItemWidget::updateBadgeStyle() const {
     ).arg(m_badgeBackground.name()));
 
     m_badgeLabel->setStyleSheet(QString("color: %1;").arg(m_badgeForeground.name()));
+}
+
+void ContentListItemWidget::updateTime()
+{
+    if (!m_updateTime.isValid()) {
+        m_timeLabel->clear();
+        return;
+    }
+
+    const QDateTime now = QDateTime::currentDateTime();
+    const qint64 secs = m_updateTime.secsTo(now);   // 正数表示过去
+
+    // 未来时间：直接显示完整日期时间（简洁起见）
+    if (secs < 0) {
+        m_timeLabel->setText(m_updateTime.toString("yyyy/MM/dd HH:mm:ss"));
+        return;
+    }
+
+    const qint64 MINUTE = 60;
+    const qint64 HOUR   = 3600;
+    const qint64 DAY    = 86400;
+    const qint64 MONTH  = 30 * DAY;
+
+    if (secs < MINUTE) {
+        m_timeLabel->setText(QStringLiteral("刚刚"));
+    } else if (secs < HOUR) {
+        int minutes = static_cast<int>(secs / MINUTE);
+        m_timeLabel->setText(QString::number(minutes) + QStringLiteral("分钟前"));
+    } else if (secs < DAY) {
+        int hours = static_cast<int>(secs / HOUR);
+        m_timeLabel->setText(QString::number(hours) + QStringLiteral("小时前"));
+    } else if (secs < MONTH) {
+        int days = static_cast<int>(secs / DAY);
+        m_timeLabel->setText(QString::number(days) + QStringLiteral("天前"));
+    } else {
+        int months = static_cast<int>(secs / MONTH);   // 按30天折算月数
+        if (months < 12) {
+            m_timeLabel->setText(QString::number(months) + QStringLiteral("个月前"));
+        } else {
+            int years = months / 12;
+            m_timeLabel->setText(QString::number(years) + QStringLiteral("年前"));
+        }
+    }
 }
