@@ -6,7 +6,7 @@
 #include <QCryptographicHash>
 #include "./TagWidget.hpp"
 
-struct ContentListItemData
+struct ContentListItemData      // 每个复制文本的数据
 {
     Tag tag;
     QString content;
@@ -27,7 +27,7 @@ class QLabel;
 class QVBoxLayout;
 class QHBoxLayout;
 
-class ContentListItemWidget final : public QWidget {
+class ContentListItemWidget final : public QWidget {    // 复制文本的Widget
 public:
     explicit ContentListItemWidget(QWidget* parent = nullptr);
 

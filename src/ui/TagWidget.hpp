@@ -10,17 +10,17 @@
 class TagDelegate;
 
 enum class SearchMode {
-    Semantics=0, // 语义搜索
-    Regex, // 正则
-    None // 都不是, 目前仅用于兜底标签
+    Semantics=0,        // 语义搜索
+    Regex,              // 正则
+    None                // 都不是, 目前仅用于兜底标签
 };
 
-struct Tag
+struct Tag                  // 标签数据结构
 {
     QString tagName;
-    QString rule; // 既可以语义搜索, 也能正则表达式搜索
-    QColor tagNameColor; // tag标签的字体颜色, 对应ContentListItemWidget::m_badgeForeground
-    QColor tagBackColor;// tag标签的背景颜色, 对应ContentListItemWidget::m_badgeBackground
+    QString rule;           // 既可以语义搜索, 也能正则表达式搜索
+    QColor tagNameColor;    // tag标签的字体颜色, 对应ContentListItemWidget::m_badgeForeground
+    QColor tagBackColor;    // tag标签的背景颜色, 对应ContentListItemWidget::m_badgeBackground
     bool isSysTag;
     SearchMode mode;
 
