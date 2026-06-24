@@ -8,14 +8,14 @@ class AbstractCopyEventListener : public QObject
     Q_OBJECT
 private:
     virtual bool registerListenService() = 0;
-    
+
 public:
     AbstractCopyEventListener(QObject* parent = nullptr);
     virtual ~AbstractCopyEventListener() = default;
 
     QString lastText;
-    QString text();
-    
+    QString text() const;
+
 signals:
     void clipboardChanged();
 public slots:
@@ -45,8 +45,7 @@ public:
     WindowsCopyEventListener(QObject* parent = nullptr);
     ~WindowsCopyEventListener();
 
-    bool handleNativeEvent(void *message, qintptr *result);
-    
+    bool handleNativeEvent(void* message, qintptr* result);
 };
 
 class HiddenWindow : public QWidget
@@ -57,7 +56,7 @@ public:
     HiddenWindow(QWidget* parent = nullptr);
     ~HiddenWindow() = default;
 
-    bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
+    bool nativeEvent(const QByteArray& eventType, void* message, qintptr* result) override;
 };
 
 #elif Q_OS_LINUX
@@ -66,16 +65,4 @@ public:
 
 #endif
 
-class PALCopyEventListener : public QObject
-{
-    Q_OBJECT
-private:
-
-public:
-    PALCopyEventListener(QObject* parent = nullptr);
-    ~PALCopyEventListener();
-
-    AbstractCopyEventListener* m_listener;
-};
-
-
+AbstractCopyEventListener* createCopyEventListener(QObject* parent = nullptr);
