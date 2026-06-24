@@ -23,7 +23,7 @@ set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 
 option(ENABLE_WARNINGS "Enable compiler warnings" ON)
-option(ENABLE_TESTING "Enable testing" OFF)
+option(ENABLE_TESTING "Enable testing" ON)
 option(CMAKE_USE_VCPKG "Use vcpkg package manager" ON)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/use_vcpkg.cmake)
