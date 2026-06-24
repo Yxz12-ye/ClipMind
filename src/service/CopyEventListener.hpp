@@ -7,9 +7,8 @@ class AbstractCopyEventListener : public QObject
 {
     Q_OBJECT
 private:
-    virtual bool registerListenService();
+    virtual bool registerListenService() = 0;
     
-
 public:
     AbstractCopyEventListener(QObject* parent = nullptr);
     virtual ~AbstractCopyEventListener() = default;
@@ -20,12 +19,15 @@ public:
 signals:
     void clipboardChanged();
 public slots:
-    virtual void getClipboardText();
+    virtual void getClipboardText() = 0;
 };
 
-#ifdef WIN32
+#ifdef Q_OS_WIN
 #include <windows.h>
 #include <winuser.h>
+
+class HiddenWindow;
+
 /**
  * @ref https://learn.microsoft.com/zh-cn/windows/win32/dataxchg/clipboard
  */
@@ -58,15 +60,22 @@ public:
     bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
 };
 
+#elif Q_OS_LINUX
+
+#elif Q_OS_MACOS
+
 #endif
 
-class PALCopyEventListener
+class PALCopyEventListener : public QObject
 {
+    Q_OBJECT
 private:
-    /* data */
+
 public:
-    PALCopyEventListener(/* args */);
+    PALCopyEventListener(QObject* parent = nullptr);
     ~PALCopyEventListener();
+
+    AbstractCopyEventListener* m_listener;
 };
 
 

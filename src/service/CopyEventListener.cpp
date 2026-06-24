@@ -1,6 +1,6 @@
 #include "CopyEventListener.hpp"
 
-#ifdef WIN32
+#ifdef Q_OS_WIN
 
 bool WindowsCopyEventListener::registerListenService() 
 {
@@ -71,6 +71,22 @@ bool HiddenWindow::nativeEvent(const QByteArray& eventType, void* message, qintp
 
 #endif
 
+AbstractCopyEventListener::AbstractCopyEventListener(QObject* parent) 
+    : QObject(parent)
+{}
+
 QString AbstractCopyEventListener::text() {
     return lastText;
+}
+
+PALCopyEventListener::PALCopyEventListener(QObject* parent) {
+#ifdef Q_OS_WIN
+    m_listener = new WindowsCopyEventListener(this);
+#elif Q_OS_LINUX
+#elif Q_OS_MACOS
+#endif
+}
+
+PALCopyEventListener::~PALCopyEventListener() {
+    m_listener->deleteLater();
 }
