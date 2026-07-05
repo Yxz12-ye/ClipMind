@@ -5,23 +5,7 @@
 #include <QWidget>
 #include <QCryptographicHash>
 #include "./TagWidget.hpp"
-
-struct ContentListItemData      // 每个复制文本的数据
-{
-    Tag tag;
-    QString content;
-    QDateTime copyTime;
-    QDateTime updateTime;
-    QByteArray hash;
-    bool pinned = false;
-
-    ContentListItemData(const Tag& tg, QString _cnt, QDateTime _cpt = {}, QDateTime _upt = {})
-    : tag(tg), content(_cnt), copyTime(_cpt), updateTime(_upt)
-    {
-        hash = QCryptographicHash::hash(content.toLocal8Bit(), QCryptographicHash::Sha256);
-    }
-};
-
+#include "../struct.hpp"
 
 class QLabel;
 class QVBoxLayout;
