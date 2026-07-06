@@ -1,7 +1,10 @@
-#include <QObject>
-#include <QDateTime>
-#include <QVector>
+#pragma once
+
 #include <QDir>
+#include <QDateTime>
+#include <QObject>
+#include <QString>
+#include <QVector>
 
 #include "sqlite3.h"
 
@@ -35,22 +38,29 @@
 class SQLService : public QObject {
     Q_OBJECT
 private:
+    bool isReady() const;
+    bool execute(const char* sql);
+    bool resetStatement(sqlite3_stmt* stmt) const;
+    QString lastError() const;
+    QVector<ContentListItemData> searchByTag(sqlite3_int64 tagId, const QString& str);
+    ContentListItemData makeContentItem(sqlite3_stmt* stmt) const;
+
     bool clear(QDateTime time); // 把time以前的条目删除(数据库中对应的字段是updateTime)
     sqlite3_int64 searchTag(const QString& tagName);
     QDir databaseDir;
 
-    sqlite3* db;
+    sqlite3* db = nullptr;
 
-    sqlite3_stmt* tagStmt;
+    sqlite3_stmt* tagStmt = nullptr;
     const char* tagSQL = "INSERT INTO Tag (tagName, rule, tagNameColor, tagBackColor, isSysTag, mode) VALUES (?, ?, ?, ?, ?, ?);";
-    sqlite3_stmt* contentStmt;
+    sqlite3_stmt* contentStmt = nullptr;
     const char* contentSQL = "INSERT INTO ContentItem (tag_id, content, copyTime, updateTime, hash, pinned) VALUES (?, ?, ?, ?, ?, ?);";
 
-    sqlite3_stmt* searchTagStmt;
+    sqlite3_stmt* searchTagStmt = nullptr;
     const char* sqlSearchTag = "SELECT id FROM Tag WHERE tagName = ?;";
 
-    int MAX_ITEM = 25;
-    int MAX_RESULT = 100;
+    const int MAX_ITEM = 25;
+    const int MAX_RESULT = 100;
 
 public:
     SQLService(QObject* parent = nullptr);
