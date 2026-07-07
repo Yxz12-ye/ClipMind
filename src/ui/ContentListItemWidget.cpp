@@ -1,11 +1,61 @@
 #include "ContentListItemWidget.hpp"
 
 #include <QFont>
+#include <QFontMetrics>
 #include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QPalette>
+#include <QResizeEvent>
+#include <QStringList>
+#include <QTextLayout>
 #include <QVBoxLayout>
+
+namespace {
+
+QString elideToTwoLines(const QString& text, const QFont& font, int width) {
+    if (text.isEmpty() || width <= 0) {
+        return text;
+    }
+
+    QTextLayout layout(text, font);
+    QTextOption option;
+    option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
+    layout.setTextOption(option);
+
+    QStringList visibleLines;
+    QFontMetrics metrics(font);
+
+    layout.beginLayout();
+    for (int lineIndex = 0; lineIndex < 2; ++lineIndex) {
+        QTextLine line = layout.createLine();
+        if (!line.isValid()) {
+            break;
+        }
+
+        line.setLineWidth(width);
+
+        const int start = line.textStart();
+        const int length = line.textLength();
+        const bool hasMoreText = start + length < text.size();
+
+        QString lineText = text.mid(start, length);
+        if (lineIndex == 1 && hasMoreText) {
+            lineText = metrics.elidedText(text.mid(start), Qt::ElideRight, width);
+        }
+
+        visibleLines.append(lineText);
+
+        if (!hasMoreText) {
+            break;
+        }
+    }
+    layout.endLayout();
+
+    return visibleLines.join('\n');
+}
+
+}
 
 ContentListItemWidget::ContentListItemWidget(QWidget* parent)
     : QWidget(parent),
@@ -35,8 +85,10 @@ ContentListItemWidget::ContentListItemWidget(QWidget* parent)
 
     QFont bodyFont("Microsoft YaHei UI", 13);
     m_bodyLabel->setFont(bodyFont);
+    m_bodyLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
     m_bodyLabel->setWordWrap(true);
-    m_bodyLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    m_bodyLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    m_bodyLabel->setFixedHeight(QFontMetrics(bodyFont).lineSpacing() * 2);
 
     headerLayout->addWidget(m_badgeContainer, 0, Qt::AlignLeft | Qt::AlignVCenter);
     headerLayout->addStretch();
@@ -54,7 +106,9 @@ ContentListItemWidget::ContentListItemWidget(QWidget* parent)
         "border-radius: 10px;"
         "}"
     );
-    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Maximum);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+    rootLayout->activate();
+    setFixedHeight(rootLayout->sizeHint().height());
 }
 
 void ContentListItemWidget::setItemData(const ContentListItemData& data) {
@@ -68,7 +122,8 @@ void ContentListItemWidget::setItemData(const ContentListItemData& data) {
 
     m_badgeLabel->setText(data.tag.tagName);
     updateTime();
-    m_bodyLabel->setText(data.content);
+    m_bodyText = data.content;
+    refreshBodyText();
     m_bodyLabel->setStyleSheet(QString("color: %1;").arg(bodyColor.name()));
     updateBadgeStyle();
 
@@ -84,6 +139,18 @@ void ContentListItemWidget::setItemData(const ContentListItemData& data) {
         shadow->setColor(QColor(0, 0, 0, 16));
         setGraphicsEffect(shadow);
     }
+}
+
+void ContentListItemWidget::resizeEvent(QResizeEvent* event) {
+    QWidget::resizeEvent(event);
+    refreshBodyText();
+}
+
+void ContentListItemWidget::refreshBodyText() {
+    const int availableWidth = m_bodyLabel->contentsRect().width() > 0
+        ? m_bodyLabel->contentsRect().width()
+        : m_bodyLabel->width();
+    m_bodyLabel->setText(elideToTwoLines(m_bodyText, m_bodyLabel->font(), availableWidth));
 }
 
 void ContentListItemWidget::updateBadgeStyle() const {
