@@ -65,7 +65,8 @@ MainWindow::MainWindow()
       contentList(&central),
       model(new QStandardItemModel(this)),
       tagContainerLayout(&tagContainer),
-      layout(&central) {
+      layout(&central),
+      controller(new UIController(this)) {
     setWindowFlag(Qt::FramelessWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
     setFixedSize(360, 400);
@@ -83,13 +84,16 @@ MainWindow::MainWindow()
     tagListView.setModel(model);
     tagListView.setSelectionMode(QAbstractItemView::SingleSelection);
     tagListView.setStyleSheet("QListView { background: transparent; }");
-    populateDemoData();
+    // populateDemoData();
 
     applyTheme();
     setCentralWidget(&central);
     connect(&head, &CustomHead::closeRequested, this, &QWidget::close);
     connect(&head, &CustomHead::moveRequested, this, [=](QPoint pos){move(pos);});
     setupUI();
+
+    contentList.setItems(controller->getCopyDate());
+    connect(controller, &UIController::updateUI, this, &MainWindow::updateCopyList);
 }
 
 void MainWindow::changeEvent(QEvent* event) {
@@ -98,4 +102,8 @@ void MainWindow::changeEvent(QEvent* event) {
     }
 
     QMainWindow::changeEvent(event);
+}
+
+void MainWindow::updateCopyList(QVector<ContentListItemData> data) {
+    contentList.setItems(data);
 }

@@ -187,6 +187,7 @@ sqlite3_int64 SQLService::searchTag(const QString& tagName) {
 
 SQLService::SQLService(QObject* parent) : QObject(parent) {
     databaseDir = QDir(QDir::homePath() + DATABASE_DIR);
+    qDebug() << "数据库位置:" << databaseDir.absolutePath();
     if (!databaseDir.exists() && !QDir().mkpath(databaseDir.absolutePath())) {
         qWarning() << "创建数据库目录失败:" << databaseDir.absolutePath();
         return;

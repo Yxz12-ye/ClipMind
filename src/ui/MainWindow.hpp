@@ -1,15 +1,16 @@
 #pragma once
 
-#include <QMainWindow>
-#include <QWidget>
-#include "./CustomHead.hpp"
-#include "./TagWidget.hpp"
-#include "./SearchWidget.hpp"
-#include "./ContentListWidget.hpp"
-#include <QStandardItemModel>
-
 #include <QHBoxLayout>
+#include <QMainWindow>
+#include <QStandardItemModel>
 #include <QVBoxLayout>
+#include <QWidget>
+
+#include "./ContentListWidget.hpp"
+#include "./CustomHead.hpp"
+#include "./SearchWidget.hpp"
+#include "./TagWidget.hpp"
+#include "controller/UIController.hpp"
 
 class MainWindow : public QMainWindow {
 private:
@@ -27,10 +28,15 @@ private:
     void applyTheme();
     void populateDemoData();
 
+    UIController* controller;
+
 public:
     MainWindow(/* args */);
-    ~MainWindow()=default;
+    ~MainWindow() = default;
 
 protected:
     void changeEvent(QEvent* event) override;
+
+public slots:
+    void updateCopyList(QVector<ContentListItemData> data);
 };

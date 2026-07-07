@@ -40,7 +40,7 @@ struct ContentListItemData  // 每个复制文本的数据
     QByteArray hash;
     bool pinned = false;
 
-    ContentListItemData(const Tag& tg, QString _cnt, QDateTime _cpt = {}, QDateTime _upt = {})
+    ContentListItemData(const Tag tg, QString _cnt, QDateTime _cpt = {}, QDateTime _upt = {})
         : tag(tg), content(_cnt), copyTime(_cpt), updateTime(_upt) {
         hash = QCryptographicHash::hash(content.toLocal8Bit(), QCryptographicHash::Sha256);
     }
