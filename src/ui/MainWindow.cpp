@@ -1,6 +1,9 @@
 #include "MainWindow.hpp"
 
+#include <QAction>
+#include <QCloseEvent>
 #include <QEvent>
+#include <QIcon>
 #include <QItemSelectionModel>
 #include <QPalette>
 #include <QStandardItem>
@@ -39,6 +42,29 @@ void MainWindow::applyTheme() {
     ).arg(background, hover));
 }
 
+void MainWindow::setupTray() {
+    const QIcon appIcon(":/img/icon.svg");
+    setWindowIcon(appIcon);
+
+    if (!QSystemTrayIcon::isSystemTrayAvailable()) {
+        return;
+    }
+
+    trayIcon.setIcon(appIcon);
+    trayIcon.setToolTip("ClipMind");
+
+    QAction* exitAction = trayMenu.addAction(QStringLiteral("退出"));
+    connect(exitAction, &QAction::triggered, this, &MainWindow::exitFromTray);
+    connect(&trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
+        if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
+            showFromTray();
+        }
+    });
+
+    trayIcon.setContextMenu(&trayMenu);
+    trayIcon.show();
+}
+
 void MainWindow::populateDemoData() {
     model->clear();
     const std::vector<Tag> taglist = {{"TEXT","文本",SearchMode::None}, {"CODE","代码",SearchMode::Semantics},{"LINK","链接",SearchMode::Regex}};
@@ -66,6 +92,8 @@ MainWindow::MainWindow()
       model(new QStandardItemModel(this)),
       tagContainerLayout(&tagContainer),
       layout(&central),
+      trayMenu(this),
+      trayIcon(this),
       controller(new UIController(this)) {
     setWindowFlag(Qt::FramelessWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
@@ -87,6 +115,7 @@ MainWindow::MainWindow()
     // populateDemoData();
 
     applyTheme();
+    setupTray();
     setCentralWidget(&central);
     connect(&head, &CustomHead::closeRequested, this, &QWidget::close);
     connect(&head, &CustomHead::moveRequested, this, [=](QPoint pos){move(pos);});
@@ -102,6 +131,33 @@ void MainWindow::changeEvent(QEvent* event) {
     }
 
     QMainWindow::changeEvent(event);
+}
+
+void MainWindow::closeEvent(QCloseEvent* event) {
+    if (trayExitRequested || !trayIcon.isVisible()) {
+        QMainWindow::closeEvent(event);
+        return;
+    }
+
+    hide();
+    event->ignore();
+}
+
+void MainWindow::showFromTray() {
+    if (isMinimized()) {
+        showNormal();
+    } else {
+        show();
+    }
+
+    raise();
+    activateWindow();
+}
+
+void MainWindow::exitFromTray() {
+    trayExitRequested = true;
+    trayIcon.hide();
+    close();
 }
 
 void MainWindow::updateCopyList(QVector<ContentListItemData> data) {

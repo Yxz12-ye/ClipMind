@@ -2,6 +2,8 @@
 
 #include <QHBoxLayout>
 #include <QMainWindow>
+#include <QMenu>
+#include <QSystemTrayIcon>
 #include <QStandardItemModel>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -11,6 +13,8 @@
 #include "./SearchWidget.hpp"
 #include "./TagWidget.hpp"
 #include "controller/UIController.hpp"
+
+class QCloseEvent;
 
 class MainWindow : public QMainWindow {
 private:
@@ -23,10 +27,16 @@ private:
     QStandardItemModel* model;
     QHBoxLayout tagContainerLayout;
     QVBoxLayout layout;
+    QMenu trayMenu;
+    QSystemTrayIcon trayIcon;
+    bool trayExitRequested = false;
 
     void setupUI();
     void applyTheme();
+    void setupTray();
     void populateDemoData();
+    void showFromTray();
+    void exitFromTray();
 
     UIController* controller;
 
@@ -36,6 +46,7 @@ public:
 
 protected:
     void changeEvent(QEvent* event) override;
+    void closeEvent(QCloseEvent* event) override;
 
 public slots:
     void updateCopyList(QVector<ContentListItemData> data);
