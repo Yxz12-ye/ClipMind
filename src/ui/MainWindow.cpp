@@ -10,6 +10,10 @@
 #include <QStandardItem>
 #include <QStringList>
 
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
+
 void MainWindow::setupUI() {
     layout.setContentsMargins(QMargins(0,0,0,0));
     layout.setSpacing(0);
@@ -52,13 +56,13 @@ void MainWindow::setupTray() {
     }
 
     trayIcon.setIcon(appIcon);
-    trayIcon.setToolTip("ClipMind");
+    trayIcon.setToolTip(hotkeyLabel.isEmpty() ? QStringLiteral("ClipMind") : QStringLiteral("ClipMind (%1)").arg(hotkeyLabel));
 
     QAction* exitAction = trayMenu.addAction(QStringLiteral("退出"));
     connect(exitAction, &QAction::triggered, this, &MainWindow::exitFromTray);
     connect(&trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
         if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
-            showFromTray();
+            showWindow();
         }
     });
 
@@ -66,21 +70,53 @@ void MainWindow::setupTray() {
     trayIcon.show();
 }
 
-void MainWindow::populateDemoData() {
-    model->clear();
-    const std::vector<Tag> taglist = {{"TEXT","文本",SearchMode::None}, {"CODE","代码",SearchMode::Semantics},{"LINK","链接",SearchMode::Regex}};
-    for (const Tag& tag : taglist) {
-        model->appendRow(new QStandardItem(tag.tagName));
+void MainWindow::setupGlobalHotkey() {
+#ifdef Q_OS_WIN
+    const WId windowId = winId();
+    HWND hwnd = reinterpret_cast<HWND>(windowId);
+    if (hwnd == nullptr) {
+        return;
     }
-    const QModelIndex firstTag = model->index(0, 0);
-    tagListView.setCurrentIndex(firstTag);
-    tagListView.selectionModel()->select(firstTag, QItemSelectionModel::ClearAndSelect);
 
-    contentList.setItems({
-        {taglist[0], "设计评审会议提前到 15:30，请同步到群里。本条信息已自动同步至云端。"},
-        {taglist[1], "https://github.com/google-gemini/clipmind"},
-        {taglist[2], "git clone https://github.com/google-gemini/clipmind.git"},
-    });
+    struct HotkeyCandidate {
+        unsigned int modifiers;
+        unsigned int virtualKey;
+        const wchar_t* label;
+    };
+
+    const HotkeyCandidate candidates[] = {
+        {MOD_ALT | MOD_NOREPEAT, 'V', L"Alt+V"},
+        {MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 'V', L"Ctrl+Alt+V"},
+    };
+
+    for (const HotkeyCandidate& candidate : candidates) {
+        if (RegisterHotKey(hwnd, kHotkeyId, candidate.modifiers, candidate.virtualKey)) {
+            hotkeyRegistered = true;
+            hotkeyModifiers = candidate.modifiers;
+            hotkeyVirtualKey = candidate.virtualKey;
+            hotkeyLabel = QString::fromWCharArray(candidate.label);
+            return;
+        }
+    }
+#endif
+}
+
+void MainWindow::teardownGlobalHotkey() {
+#ifdef Q_OS_WIN
+    if (!hotkeyRegistered) {
+        return;
+    }
+
+    HWND hwnd = reinterpret_cast<HWND>(winId());
+    if (hwnd != nullptr) {
+        UnregisterHotKey(hwnd, kHotkeyId);
+    }
+#endif
+
+    hotkeyRegistered = false;
+    hotkeyModifiers = 0;
+    hotkeyVirtualKey = 0;
+    hotkeyLabel.clear();
 }
 
 MainWindow::MainWindow()
@@ -113,9 +149,9 @@ MainWindow::MainWindow()
     tagListView.setModel(model);
     tagListView.setSelectionMode(QAbstractItemView::SingleSelection);
     tagListView.setStyleSheet("QListView { background: transparent; }");
-    // populateDemoData();
 
     applyTheme();
+    setupGlobalHotkey();
     setupTray();
     setCentralWidget(&central);
     connect(&head, &CustomHead::closeRequested, this, &QWidget::close);
@@ -126,9 +162,17 @@ MainWindow::MainWindow()
     connect(controller, &UIController::updateUI, this, &MainWindow::updateCopyList);
 }
 
+MainWindow::~MainWindow() {
+    teardownGlobalHotkey();
+}
+
 void MainWindow::changeEvent(QEvent* event) {
     if (event->type() == QEvent::PaletteChange || event->type() == QEvent::ApplicationPaletteChange) {
         applyTheme();
+    }
+
+    if (event->type() == QEvent::ActivationChange && isVisible() && !isActiveWindow() && !trayExitRequested) {
+        hideWindow();
     }
 
     QMainWindow::changeEvent(event);
@@ -140,23 +184,55 @@ void MainWindow::closeEvent(QCloseEvent* event) {
         return;
     }
 
-    hide();
+    hideWindow();
     event->ignore();
 }
 
-void MainWindow::showFromTray() {
+bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr* result) {
+    Q_UNUSED(eventType);
+#ifdef Q_OS_WIN
+    MSG* msg = reinterpret_cast<MSG*>(message);
+    if (msg != nullptr && msg->message == WM_HOTKEY && msg->wParam == kHotkeyId) {
+        showWindow();
+        if (result != nullptr) {
+            *result = 0;
+        }
+        return true;
+    }
+#else
+    Q_UNUSED(message);
+    Q_UNUSED(result);
+#endif
+
+    return QMainWindow::nativeEvent(eventType, message, result);
+}
+
+void MainWindow::showWindow() {
     if (isMinimized()) {
         showNormal();
     } else {
         show();
     }
 
+#ifdef Q_OS_WIN
+    HWND hwnd = reinterpret_cast<HWND>(winId());
+    if (hwnd != nullptr) {
+        SetForegroundWindow(hwnd);
+    }
+#endif
+
     raise();
     activateWindow();
+    searchWidget.focusInput();
+}
+
+void MainWindow::hideWindow() {
+    hide();
 }
 
 void MainWindow::exitFromTray() {
     trayExitRequested = true;
+    teardownGlobalHotkey();
     trayIcon.hide();
     close();
     qApp->quit();

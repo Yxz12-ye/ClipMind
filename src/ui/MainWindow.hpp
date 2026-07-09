@@ -3,8 +3,8 @@
 #include <QHBoxLayout>
 #include <QMainWindow>
 #include <QMenu>
-#include <QSystemTrayIcon>
 #include <QStandardItemModel>
+#include <QSystemTrayIcon>
 #include <QVBoxLayout>
 #include <QWidget>
 
@@ -18,6 +18,8 @@ class QCloseEvent;
 
 class MainWindow : public QMainWindow {
 private:
+    static constexpr int kHotkeyId = 1;
+
     QWidget central;
     CustomHead head;
     SearchWidget searchWidget;
@@ -30,23 +32,30 @@ private:
     QMenu trayMenu;
     QSystemTrayIcon trayIcon;
     bool trayExitRequested = false;
+    bool hotkeyRegistered = false;
+    unsigned int hotkeyModifiers = 0;
+    unsigned int hotkeyVirtualKey = 0;
+    QString hotkeyLabel;
 
     void setupUI();
     void applyTheme();
     void setupTray();
-    void populateDemoData();
-    void showFromTray();
+    void setupGlobalHotkey();
+    void teardownGlobalHotkey();
+    void showWindow();
+    void hideWindow();
     void exitFromTray();
 
     UIController* controller;
 
 public:
     MainWindow(/* args */);
-    ~MainWindow() = default;
+    ~MainWindow() override;
 
 protected:
     void changeEvent(QEvent* event) override;
     void closeEvent(QCloseEvent* event) override;
+    bool nativeEvent(const QByteArray& eventType, void* message, qintptr* result) override;
 
 public slots:
     void updateCopyList(QVector<ContentListItemData> data);

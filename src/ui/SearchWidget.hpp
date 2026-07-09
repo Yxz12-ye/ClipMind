@@ -14,4 +14,6 @@ private:
 public:
     explicit SearchWidget(QWidget* parent = nullptr);
     ~SearchWidget()=default;
+
+    void focusInput();
 };

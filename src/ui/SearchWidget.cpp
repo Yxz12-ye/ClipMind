@@ -34,3 +34,9 @@ SearchWidget::SearchWidget(QWidget* parent) : QWidget(parent), layout(this)
     layout.addWidget(roundedBg, 0, Qt::AlignCenter);
     setLayout(&layout);
 }
+
+void SearchWidget::focusInput()
+{
+    lineEdit->setFocus(Qt::ShortcutFocusReason);
+    lineEdit->selectAll();
+}
