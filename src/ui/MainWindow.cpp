@@ -4,9 +4,11 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QEvent>
+#include <QGuiApplication>
 #include <QIcon>
 #include <QItemSelectionModel>
 #include <QPalette>
+#include <QScreen>
 #include <QStandardItem>
 #include <QStringList>
 
@@ -119,6 +121,51 @@ void MainWindow::teardownGlobalHotkey() {
     hotkeyLabel.clear();
 }
 
+QPoint MainWindow::resolveWindowPosition() const {
+    constexpr int kOffsetX = 12;
+    constexpr int kOffsetY = 16;
+    constexpr int kScreenMargin = 16;
+
+    QPoint anchorPoint;
+    QScreen* targetScreen = nullptr;
+
+#ifdef Q_OS_WIN
+    GUITHREADINFO guiThreadInfo;
+    guiThreadInfo.cbSize = sizeof(GUITHREADINFO);
+    if (GetGUIThreadInfo(0, &guiThreadInfo) && guiThreadInfo.hwndCaret != nullptr) {
+        RECT caretRect = guiThreadInfo.rcCaret;
+        POINT caretPoint{caretRect.left, caretRect.bottom};
+        if (ClientToScreen(guiThreadInfo.hwndCaret, &caretPoint)) {
+            anchorPoint = QPoint(caretPoint.x, caretPoint.y);
+            targetScreen = QGuiApplication::screenAt(anchorPoint);
+        }
+    }
+#endif
+
+    if (targetScreen == nullptr) {
+        targetScreen = QGuiApplication::primaryScreen();
+        if (targetScreen == nullptr) {
+            return pos();
+        }
+
+        const QRect availableGeometry = targetScreen->availableGeometry();
+        return QPoint(
+            availableGeometry.right() - width() - kScreenMargin,
+            availableGeometry.bottom() - height() - kScreenMargin
+        );
+    }
+
+    const QRect availableGeometry = targetScreen->availableGeometry();
+    QPoint targetPoint = anchorPoint + QPoint(kOffsetX, kOffsetY);
+    targetPoint.setX(qBound(availableGeometry.left() + kScreenMargin,
+                            targetPoint.x(),
+                            availableGeometry.right() - width() - kScreenMargin));
+    targetPoint.setY(qBound(availableGeometry.top() + kScreenMargin,
+                            targetPoint.y(),
+                            availableGeometry.bottom() - height() - kScreenMargin));
+    return targetPoint;
+}
+
 MainWindow::MainWindow()
     : central(this),
       head(&central),
@@ -208,6 +255,8 @@ bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr
 }
 
 void MainWindow::showWindow() {
+    move(resolveWindowPosition());
+
     if (isMinimized()) {
         showNormal();
     } else {

@@ -42,6 +42,7 @@ private:
     void setupTray();
     void setupGlobalHotkey();
     void teardownGlobalHotkey();
+    QPoint resolveWindowPosition() const;
     void showWindow();
     void hideWindow();
     void exitFromTray();
