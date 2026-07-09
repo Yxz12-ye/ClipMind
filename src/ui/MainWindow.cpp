@@ -1,6 +1,7 @@
 #include "MainWindow.hpp"
 
 #include <QAction>
+#include <QApplication>
 #include <QCloseEvent>
 #include <QEvent>
 #include <QIcon>
@@ -158,6 +159,7 @@ void MainWindow::exitFromTray() {
     trayExitRequested = true;
     trayIcon.hide();
     close();
+    qApp->quit();
 }
 
 void MainWindow::updateCopyList(QVector<ContentListItemData> data) {
