@@ -9,6 +9,10 @@ class UIController : public QObject
 private:
     AbstractCopyEventListener* listener;
     SQLService* sql;
+    QString currentSearchText;
+    SearchMode currentSearchMode = SearchMode::None;
+
+    void refreshCurrentView();
 
 public:
     UIController(QObject* parent = nullptr);
@@ -18,6 +22,9 @@ public:
 
 private slots:
     void onCopyTrigged();
+
+public slots:
+    void requireSearch(const QString& text);
 
 signals:
     void updateUI(QVector<ContentListItemData> data);

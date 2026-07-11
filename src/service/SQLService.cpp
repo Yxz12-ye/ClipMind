@@ -312,12 +312,13 @@ QString SQLService::save(const ContentListItemData& data) {
     return error;
 }
 
-QVector<ContentListItemData> SQLService::search(QString str, QString rule, SearchMode mode) {
+QVector<ContentListItemData> SQLService::search(QString rule, SearchMode mode) {
     QVector<ContentListItemData> results;
     if (!isReady()) {
         return results;
     }
 
+    // 弃用
     const auto searchAllLike = [&]() {
         sqlite3_stmt* stmt = nullptr;
         const char* sql =
@@ -333,7 +334,7 @@ QVector<ContentListItemData> SQLService::search(QString str, QString rule, Searc
             return QVector<ContentListItemData>{};
         }
 
-        const QString pattern = QStringLiteral("%") + str + QStringLiteral("%");
+        const QString pattern = QStringLiteral("%") + rule + QStringLiteral("%");
         sqlite3_bind_text(stmt, 1, pattern.toUtf8().constData(), -1, SQLITE_TRANSIENT);
         sqlite3_bind_int(stmt, 2, MAX_RESULT);
 
@@ -346,13 +347,12 @@ QVector<ContentListItemData> SQLService::search(QString str, QString rule, Searc
         return items;
     };
 
-    const QString trimmedStr = str.trimmed();
     const QString trimmedRule = rule.trimmed();
-    if (trimmedStr.isEmpty()) {
-        return results;
+    if (trimmedRule.isEmpty()) {
+        return this->get();
     }
 
-    if (mode == SearchMode::Regex && !trimmedRule.isEmpty()) {
+    if (mode == SearchMode::Regex) {
         const QRegularExpression regex(trimmedRule);
         if (regex.isValid()) {
             sqlite3_stmt* stmt = nullptr;
@@ -378,6 +378,14 @@ QVector<ContentListItemData> SQLService::search(QString str, QString rule, Searc
             sqlite3_finalize(stmt);
             return results;
         }
+        else {
+            qWarning() << "正则表达式有误!" ;
+            return results;
+        }
+    }
+
+    if (mode == SearchMode::None) {
+        return searchAllLike();
     }
 
     return searchAllLike();

@@ -207,6 +207,7 @@ MainWindow::MainWindow()
 
     contentList.setItems(controller->getCopyDate());
     connect(controller, &UIController::updateUI, this, &MainWindow::updateCopyList);
+    connect(&searchWidget, &SearchWidget::inputTextChanged, controller, &UIController::requireSearch);
 }
 
 MainWindow::~MainWindow() {

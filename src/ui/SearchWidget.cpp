@@ -1,7 +1,16 @@
 #include "SearchWidget.hpp"
 
-SearchWidget::SearchWidget(QWidget* parent) : QWidget(parent), layout(this)
-{
+void SearchWidget::onTextChanged(const QString& text) {
+    if (text.isEmpty()) {
+        timer.stop();
+        emit inputTextChanged(QString());
+        return;
+    }
+    // 消除输入抖动
+    timer.start(1000);
+}
+
+SearchWidget::SearchWidget(QWidget* parent) : QWidget(parent), layout(this) {
     QWidget *roundedBg = new QWidget(this);
     roundedBg->setFixedSize(328, 36);
     // 设置背景色、圆角边框（可视需要加上边框）
@@ -33,6 +42,12 @@ SearchWidget::SearchWidget(QWidget* parent) : QWidget(parent), layout(this)
     layout.setContentsMargins(0,0,0,0);
     layout.addWidget(roundedBg, 0, Qt::AlignCenter);
     setLayout(&layout);
+
+    timer.setSingleShot(true);
+    connect(lineEdit, &QLineEdit::textChanged, this, &SearchWidget::onTextChanged);
+    connect(&timer, &QTimer::timeout, this, [this]() {
+        emit inputTextChanged(lineEdit->text());
+    });
 }
 
 void SearchWidget::focusInput()

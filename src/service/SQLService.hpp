@@ -68,7 +68,7 @@ public:
 
     QString save(const ContentListItemData& data);
     QString save(const Tag& tag);
-    QVector<ContentListItemData> search(QString str, QString rule, SearchMode mode = SearchMode::Regex);    // 根据提供的rule检索, 返回符合的对象(限制MAX_RESULT个)
+    QVector<ContentListItemData> search(QString rule, SearchMode mode = SearchMode::None);    // 根据提供的rule检索, 返回符合的对象(限制MAX_RESULT个)
     QVector<ContentListItemData> search(QString str, QString rule, Tag& tag, SearchMode mode = SearchMode::Regex);    // 根据提供的rule检索, 返回符合的对象(限制MAX_RESULT个), 根据tag进行一级搜索, 然后再用str二级搜索(若str为空就不用二级搜索)
     bool deleteItem(QByteArray hash);   // 后面再添加其他删除(比如正则表达式删除等)
     QVector<ContentListItemData> get(); // 根据updateTime倒序读取前MAX_ITEM个对象
