@@ -36,3 +36,4 @@ include(GoogleTest)
 # Modular tests — one subdirectory per service / component
 # ---------------------------------------------------------------------------
 add_subdirectory(CopyEventListener)
+add_subdirectory(SQLService)

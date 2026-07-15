@@ -69,22 +69,16 @@ ContentListItemData SQLService::makeContentItem(sqlite3_stmt* stmt) const {
     const auto* tagNameText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
     const auto* ruleText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
 
-    Tag tag(
-        tagNameText != nullptr ? QString::fromUtf8(tagNameText) : QString(),
-        ruleText != nullptr ? QString::fromUtf8(ruleText) : QString(),
-        static_cast<SearchMode>(sqlite3_column_int(stmt, 5)),
-        colorFromColumn(stmt, 3, QColor(255, 255, 255)),
-        colorFromColumn(stmt, 2, QColor(0, 0, 0)),
-        sqlite3_column_int(stmt, 4) != 0
-    );
+    Tag tag(tagNameText != nullptr ? QString::fromUtf8(tagNameText) : QString(),
+            ruleText != nullptr ? QString::fromUtf8(ruleText) : QString(),
+            static_cast<SearchMode>(sqlite3_column_int(stmt, 5)),
+            colorFromColumn(stmt, 3, QColor(255, 255, 255)),
+            colorFromColumn(stmt, 2, QColor(0, 0, 0)), sqlite3_column_int(stmt, 4) != 0);
 
     const auto* contentText = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 6));
-    ContentListItemData item(
-        tag,
-        contentText != nullptr ? QString::fromUtf8(contentText) : QString(),
-        dateTimeFromColumn(stmt, 7),
-        dateTimeFromColumn(stmt, 8)
-    );
+    ContentListItemData item(tag,
+                             contentText != nullptr ? QString::fromUtf8(contentText) : QString(),
+                             dateTimeFromColumn(stmt, 7), dateTimeFromColumn(stmt, 8));
 
     const void* hashBlob = sqlite3_column_blob(stmt, 9);
     const int hashSize = sqlite3_column_bytes(stmt, 9);
@@ -165,7 +159,8 @@ sqlite3_int64 SQLService::searchTag(const QString& tagName) {
 
     resetStatement(searchTagStmt);
     const QByteArray tagNameUtf8 = tagName.toUtf8();
-    const int rc = sqlite3_bind_text(searchTagStmt, 1, tagNameUtf8.constData(), -1, SQLITE_TRANSIENT);
+    const int rc =
+        sqlite3_bind_text(searchTagStmt, 1, tagNameUtf8.constData(), -1, SQLITE_TRANSIENT);
     if (rc != SQLITE_OK) {
         qWarning() << "bind searchTag failed:" << lastError();
         resetStatement(searchTagStmt);
@@ -185,8 +180,11 @@ sqlite3_int64 SQLService::searchTag(const QString& tagName) {
     return tagId;
 }
 
-SQLService::SQLService(QObject* parent) : QObject(parent) {
-    databaseDir = QDir(QDir::homePath() + DATABASE_DIR);
+SQLService::SQLService(QObject* parent)
+    : SQLService(QDir(QDir::homePath() + DATABASE_DIR), parent) {}
+
+SQLService::SQLService(const QDir& databaseDirectory, QObject* parent)
+    : QObject(parent), databaseDir(databaseDirectory) {
     qDebug() << "数据库位置:" << databaseDir.absolutePath();
     if (!databaseDir.exists() && !QDir().mkpath(databaseDir.absolutePath())) {
         qWarning() << "创建数据库目录失败:" << databaseDir.absolutePath();
@@ -210,9 +208,9 @@ SQLService::SQLService(QObject* parent) : QObject(parent) {
         return;
     }
 
-    if (sqlite3_prepare_v2(db, tagSQL, -1, &tagStmt, nullptr) != SQLITE_OK
-        || sqlite3_prepare_v2(db, contentSQL, -1, &contentStmt, nullptr) != SQLITE_OK
-        || sqlite3_prepare_v2(db, sqlSearchTag, -1, &searchTagStmt, nullptr) != SQLITE_OK) {
+    if (sqlite3_prepare_v2(db, tagSQL, -1, &tagStmt, nullptr) != SQLITE_OK ||
+        sqlite3_prepare_v2(db, contentSQL, -1, &contentStmt, nullptr) != SQLITE_OK ||
+        sqlite3_prepare_v2(db, sqlSearchTag, -1, &searchTagStmt, nullptr) != SQLITE_OK) {
         qWarning() << "prepare statement failed:" << lastError();
         sqlite3_finalize(tagStmt);
         sqlite3_finalize(contentStmt);
@@ -289,11 +287,13 @@ QString SQLService::save(const ContentListItemData& data) {
     resetStatement(contentStmt);
 
     const QByteArray contentUtf8 = data.content.toUtf8();
-    const QDateTime copyTime = data.copyTime.isValid() ? data.copyTime : QDateTime::currentDateTime();
+    const QDateTime copyTime =
+        data.copyTime.isValid() ? data.copyTime : QDateTime::currentDateTime();
     const QDateTime updateTime = data.updateTime.isValid() ? data.updateTime : copyTime;
-    const QByteArray hash = data.hash.isEmpty()
-        ? QCryptographicHash::hash(data.content.toUtf8(), QCryptographicHash::Sha256)
-        : data.hash;
+    const QByteArray hash =
+        data.hash.isEmpty()
+            ? QCryptographicHash::hash(data.content.toUtf8(), QCryptographicHash::Sha256)
+            : data.hash;
 
     sqlite3_bind_int64(contentStmt, 1, tagId);
     sqlite3_bind_text(contentStmt, 2, contentUtf8.constData(), -1, SQLITE_TRANSIENT);
@@ -377,9 +377,8 @@ QVector<ContentListItemData> SQLService::search(QString rule, SearchMode mode) {
 
             sqlite3_finalize(stmt);
             return results;
-        }
-        else {
-            qWarning() << "正则表达式有误!" ;
+        } else {
+            qWarning() << "正则表达式有误!";
             return results;
         }
     }
@@ -391,7 +390,8 @@ QVector<ContentListItemData> SQLService::search(QString rule, SearchMode mode) {
     return searchAllLike();
 }
 
-QVector<ContentListItemData> SQLService::search(QString str, QString rule, Tag& tag, SearchMode mode) {
+QVector<ContentListItemData> SQLService::search(QString str, QString rule, Tag& tag,
+                                                SearchMode mode) {
     Q_UNUSED(rule);
     Q_UNUSED(mode);
 
