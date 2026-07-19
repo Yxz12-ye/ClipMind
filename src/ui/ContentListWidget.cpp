@@ -2,22 +2,23 @@
 
 #include <QLayoutItem>
 #include <QScrollArea>
+#include <QScrollBar>
 #include <QVBoxLayout>
 
 ContentListWidget::ContentListWidget(QWidget* parent)
     : QWidget(parent),
+      m_scrollArea(new QScrollArea(this)),
       m_contentWidget(new QWidget(this)),
       m_contentLayout(new QVBoxLayout(m_contentWidget)) {
     auto* rootLayout = new QVBoxLayout(this);
     rootLayout->setContentsMargins(0, 0, 0, 0);
 
-    auto* scrollArea = new QScrollArea(this);
-    scrollArea->setWidgetResizable(true);
-    scrollArea->setFrameShape(QFrame::NoFrame);
-    scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    scrollArea->viewport()->setAutoFillBackground(false);
-    scrollArea->setStyleSheet(
+    m_scrollArea->setWidgetResizable(true);
+    m_scrollArea->setFrameShape(QFrame::NoFrame);
+    m_scrollArea->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_scrollArea->setVerticalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    m_scrollArea->viewport()->setAutoFillBackground(false);
+    m_scrollArea->setStyleSheet(
         "QScrollArea { background: transparent; border: none; }"
         "QScrollArea QWidget#qt_scrollarea_viewport { background: transparent; }"
         "QScrollArea > QWidget > QWidget { background: transparent; }");
@@ -26,10 +27,15 @@ ContentListWidget::ContentListWidget(QWidget* parent)
     m_contentLayout->setSpacing(8);
     m_contentWidget->setAttribute(Qt::WA_StyledBackground, true);
 
-    scrollArea->setWidget(m_contentWidget);
-    rootLayout->addWidget(scrollArea);
+    m_scrollArea->setWidget(m_contentWidget);
+    rootLayout->addWidget(m_scrollArea);
 
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+}
+
+void ContentListWidget::scrollToTop() {
+    QScrollBar* scrollBar = m_scrollArea->verticalScrollBar();
+    scrollBar->setValue(scrollBar->minimum());
 }
 
 void ContentListWidget::setItems(const QVector<ContentListItemData>& items) {

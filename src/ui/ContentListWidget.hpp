@@ -15,11 +15,13 @@ public:
     explicit ContentListWidget(QWidget* parent = nullptr);
 
     void setItems(const QVector<ContentListItemData>& items);
+    void scrollToTop();
 
 signals:
     void itemClicked(const QString& content);
 
 private:
+    QScrollArea* m_scrollArea;
     QWidget* m_contentWidget;
     QVBoxLayout* m_contentLayout;
 

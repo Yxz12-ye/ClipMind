@@ -265,6 +265,7 @@ void MainWindow::showWindow() {
     } else {
         show();
     }
+    contentList.scrollToTop();
 
 #ifdef Q_OS_WIN
     HWND hwnd = reinterpret_cast<HWND>(winId());
