@@ -60,6 +60,7 @@ QString elideToTwoLines(const QString& text, const QFont& font, int width) {
 
 ContentListItemWidget::ContentListItemWidget(QWidget* parent)
     : QWidget(parent),
+      m_shadowEffect(new QGraphicsDropShadowEffect),
       m_badgeContainer(new QWidget(this)),
       m_badgeLabel(new QLabel(m_badgeContainer)),
       m_timeLabel(new QLabel(this)),
@@ -112,6 +113,8 @@ ContentListItemWidget::ContentListItemWidget(QWidget* parent)
         "border: 1px solid #E2E8F0;"
         "border-radius: 10px;"
         "}");
+    setGraphicsEffect(m_shadowEffect);
+    updateShadowEffect();
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     rootLayout->activate();
     setFixedHeight(rootLayout->sizeHint().height());
@@ -132,19 +135,20 @@ void ContentListItemWidget::setItemData(const ContentListItemData& data) {
     refreshBodyText();
     m_bodyLabel->setStyleSheet(QString("color: %1;").arg(bodyColor.name()));
     updateBadgeStyle();
+    m_pinned = data.pinned;
+    updateShadowEffect();
+}
 
-    if (auto* existingEffect = graphicsEffect()) {
-        setGraphicsEffect(nullptr);
-        existingEffect->deleteLater();
-    }
+void ContentListItemWidget::enterEvent(QEnterEvent* event) {
+    QWidget::enterEvent(event);
+    m_hovered = true;
+    updateShadowEffect();
+}
 
-    if (data.pinned) {
-        auto* shadow = new QGraphicsDropShadowEffect(this);
-        shadow->setBlurRadius(8.0);
-        shadow->setOffset(0.0, 2.0);
-        shadow->setColor(QColor(0, 0, 0, 16));
-        setGraphicsEffect(shadow);
-    }
+void ContentListItemWidget::leaveEvent(QEvent* event) {
+    QWidget::leaveEvent(event);
+    m_hovered = false;
+    updateShadowEffect();
 }
 
 void ContentListItemWidget::mouseReleaseEvent(QMouseEvent* event) {
@@ -175,6 +179,26 @@ void ContentListItemWidget::updateBadgeStyle() const {
                                         .arg(m_badgeBackground.name()));
 
     m_badgeLabel->setStyleSheet(QString("color: %1;").arg(m_badgeForeground.name()));
+}
+
+void ContentListItemWidget::updateShadowEffect() {
+    if (m_hovered) {
+        m_shadowEffect->setEnabled(true);
+        m_shadowEffect->setBlurRadius(12.0);
+        m_shadowEffect->setOffset(0.0, 3.0);
+        m_shadowEffect->setColor(QColor(15, 23, 42, 48));
+        return;
+    }
+
+    if (m_pinned) {
+        m_shadowEffect->setEnabled(true);
+        m_shadowEffect->setBlurRadius(8.0);
+        m_shadowEffect->setOffset(0.0, 2.0);
+        m_shadowEffect->setColor(QColor(0, 0, 0, 16));
+        return;
+    }
+
+    m_shadowEffect->setEnabled(false);
 }
 
 void ContentListItemWidget::updateTime() {
