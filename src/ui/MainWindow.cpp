@@ -17,7 +17,7 @@
 #endif
 
 void MainWindow::setupUI() {
-    layout.setContentsMargins(QMargins(0,0,0,0));
+    layout.setContentsMargins(QMargins(0, 0, 0, 0));
     layout.setSpacing(0);
     layout.addWidget(&head);
     layout.addSpacing(8);
@@ -33,20 +33,19 @@ void MainWindow::applyTheme() {
     const QString background = darkMode ? "#1C1C1C" : "#FFFFFF";
     const QString hover = darkMode ? "rgba(255, 255, 255, 0.08)" : "rgba(15, 23, 42, 0.06)";
 
-    central.setStyleSheet(QString(
-        "QWidget#centralPanel {"
-        "background-color: %1;"
-        "border-radius: 12px;"
-        "}"
-        "QWidget#centralPanel QToolButton {"
-        "border: none;"
-        "border-radius: 9px;"
-        "background: transparent;"
-        "}"
-        "QWidget#centralPanel QToolButton:hover {"
-        "background-color: %2;"
-        "}"
-    ).arg(background, hover));
+    central.setStyleSheet(QString("QWidget#centralPanel {"
+                                  "background-color: %1;"
+                                  "border-radius: 12px;"
+                                  "}"
+                                  "QWidget#centralPanel QToolButton {"
+                                  "border: none;"
+                                  "border-radius: 9px;"
+                                  "background: transparent;"
+                                  "}"
+                                  "QWidget#centralPanel QToolButton:hover {"
+                                  "background-color: %2;"
+                                  "}")
+                              .arg(background, hover));
 }
 
 void MainWindow::setupTray() {
@@ -58,15 +57,17 @@ void MainWindow::setupTray() {
     }
 
     trayIcon.setIcon(appIcon);
-    trayIcon.setToolTip(hotkeyLabel.isEmpty() ? QStringLiteral("ClipMind") : QStringLiteral("ClipMind (%1)").arg(hotkeyLabel));
+    trayIcon.setToolTip(hotkeyLabel.isEmpty() ? QStringLiteral("ClipMind")
+                                              : QStringLiteral("ClipMind (%1)").arg(hotkeyLabel));
 
     QAction* exitAction = trayMenu.addAction(QStringLiteral("退出"));
     connect(exitAction, &QAction::triggered, this, &MainWindow::exitFromTray);
-    connect(&trayIcon, &QSystemTrayIcon::activated, this, [this](QSystemTrayIcon::ActivationReason reason) {
-        if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
-            showWindow();
-        }
-    });
+    connect(&trayIcon, &QSystemTrayIcon::activated, this,
+            [this](QSystemTrayIcon::ActivationReason reason) {
+                if (reason == QSystemTrayIcon::Trigger || reason == QSystemTrayIcon::DoubleClick) {
+                    showWindow();
+                }
+            });
 
     trayIcon.setContextMenu(&trayMenu);
     trayIcon.show();
@@ -149,19 +150,15 @@ QPoint MainWindow::resolveWindowPosition() const {
         }
 
         const QRect availableGeometry = targetScreen->availableGeometry();
-        return QPoint(
-            availableGeometry.right() - width() - kScreenMargin,
-            availableGeometry.bottom() - height() - kScreenMargin
-        );
+        return QPoint(availableGeometry.right() - width() - kScreenMargin,
+                      availableGeometry.bottom() - height() - kScreenMargin);
     }
 
     const QRect availableGeometry = targetScreen->availableGeometry();
     QPoint targetPoint = anchorPoint + QPoint(kOffsetX, kOffsetY);
-    targetPoint.setX(qBound(availableGeometry.left() + kScreenMargin,
-                            targetPoint.x(),
+    targetPoint.setX(qBound(availableGeometry.left() + kScreenMargin, targetPoint.x(),
                             availableGeometry.right() - width() - kScreenMargin));
-    targetPoint.setY(qBound(availableGeometry.top() + kScreenMargin,
-                            targetPoint.y(),
+    targetPoint.setY(qBound(availableGeometry.top() + kScreenMargin, targetPoint.y(),
                             availableGeometry.bottom() - height() - kScreenMargin));
     return targetPoint;
 }
@@ -202,12 +199,15 @@ MainWindow::MainWindow()
     setupTray();
     setCentralWidget(&central);
     connect(&head, &CustomHead::closeRequested, this, &QWidget::close);
-    connect(&head, &CustomHead::moveRequested, this, [=](QPoint pos){move(pos);});
+    connect(&head, &CustomHead::moveRequested, this, [=](QPoint pos) { move(pos); });
     setupUI();
 
     contentList.setItems(controller->getCopyDate());
     connect(controller, &UIController::updateUI, this, &MainWindow::updateCopyList);
-    connect(&searchWidget, &SearchWidget::inputTextChanged, controller, &UIController::requireSearch);
+    connect(&searchWidget, &SearchWidget::inputTextChanged, controller,
+            &UIController::requireSearch);
+    connect(&contentList, &ContentListWidget::itemClicked, controller, &UIController::pasteContent);
+    connect(controller, &UIController::hideWindowRequested, this, &MainWindow::hideWindow);
 }
 
 MainWindow::~MainWindow() {
@@ -215,11 +215,13 @@ MainWindow::~MainWindow() {
 }
 
 void MainWindow::changeEvent(QEvent* event) {
-    if (event->type() == QEvent::PaletteChange || event->type() == QEvent::ApplicationPaletteChange) {
+    if (event->type() == QEvent::PaletteChange ||
+        event->type() == QEvent::ApplicationPaletteChange) {
         applyTheme();
     }
 
-    if (event->type() == QEvent::ActivationChange && isVisible() && !isActiveWindow() && !trayExitRequested) {
+    if (event->type() == QEvent::ActivationChange && isVisible() && !isActiveWindow() &&
+        !trayExitRequested) {
         hideWindow();
     }
 

@@ -3,8 +3,7 @@
 #include <QObject>
 #include <QWidget>
 
-class AbstractCopyEventListener : public QObject
-{
+class AbstractCopyEventListener : public QObject {
     Q_OBJECT
 private:
     virtual bool registerListenService() = 0;
@@ -20,6 +19,7 @@ signals:
     void clipboardChanged();
 public slots:
     virtual void getClipboardText() = 0;
+    virtual void pasteText(const QString& text);
 };
 
 #ifdef Q_OS_WIN
@@ -31,15 +31,17 @@ class HiddenWindow;
 /**
  * @ref https://learn.microsoft.com/zh-cn/windows/win32/dataxchg/clipboard
  */
-class WindowsCopyEventListener : public AbstractCopyEventListener
-{
+class WindowsCopyEventListener : public AbstractCopyEventListener {
     Q_OBJECT
 private:
     HiddenWindow* m_hiddenWindow;
     HWND hwnd;
+    DWORD m_pastedClipboardSequenceNumber = 0;
     bool registerListenService() override;
+    bool writeClipboardText(const QString& text);
 private slots:
     void getClipboardText() override;
+    void pasteText(const QString& text) override;
 
 public:
     WindowsCopyEventListener(QObject* parent = nullptr);
@@ -48,8 +50,7 @@ public:
     bool handleNativeEvent(void* message, qintptr* result);
 };
 
-class HiddenWindow : public QWidget
-{
+class HiddenWindow : public QWidget {
 private:
 public:
     WindowsCopyEventListener* m_listener;

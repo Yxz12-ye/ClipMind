@@ -1,24 +1,32 @@
 #pragma once
 
 #include <QColor>
+#include <QCryptographicHash>
 #include <QString>
 #include <QWidget>
-#include <QCryptographicHash>
-#include "./TagWidget.hpp"
+
 #include "../struct.hpp"
+#include "./TagWidget.hpp"
 
 class QLabel;
 class QVBoxLayout;
 class QHBoxLayout;
+class QMouseEvent;
 class QResizeEvent;
 
-class ContentListItemWidget final : public QWidget {    // 复制文本的Widget
+class ContentListItemWidget final : public QWidget {  // 复制文本的Widget
+    Q_OBJECT
+
 public:
     explicit ContentListItemWidget(QWidget* parent = nullptr);
 
     void setItemData(const ContentListItemData& data);
 
+signals:
+    void clicked(const QString& content);
+
 protected:
+    void mouseReleaseEvent(QMouseEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 
 private:

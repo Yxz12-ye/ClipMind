@@ -20,8 +20,7 @@ ContentListWidget::ContentListWidget(QWidget* parent)
     scrollArea->setStyleSheet(
         "QScrollArea { background: transparent; border: none; }"
         "QScrollArea QWidget#qt_scrollarea_viewport { background: transparent; }"
-        "QScrollArea > QWidget > QWidget { background: transparent; }"
-    );
+        "QScrollArea > QWidget > QWidget { background: transparent; }");
 
     m_contentLayout->setContentsMargins(12, 0, 12, 12);
     m_contentLayout->setSpacing(8);
@@ -39,6 +38,7 @@ void ContentListWidget::setItems(const QVector<ContentListItemData>& items) {
     for (const auto& item : items) {
         auto* itemWidget = new ContentListItemWidget(m_contentWidget);
         itemWidget->setItemData(item);
+        connect(itemWidget, &ContentListItemWidget::clicked, this, &ContentListWidget::itemClicked);
         m_contentLayout->addWidget(itemWidget);
     }
 

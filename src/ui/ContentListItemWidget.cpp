@@ -5,6 +5,7 @@
 #include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QMouseEvent>
 #include <QPalette>
 #include <QResizeEvent>
 #include <QStringList>
@@ -55,7 +56,7 @@ QString elideToTwoLines(const QString& text, const QFont& font, int width) {
     return visibleLines.join('\n');
 }
 
-}
+}  // namespace
 
 ContentListItemWidget::ContentListItemWidget(QWidget* parent)
     : QWidget(parent),
@@ -63,6 +64,11 @@ ContentListItemWidget::ContentListItemWidget(QWidget* parent)
       m_badgeLabel(new QLabel(m_badgeContainer)),
       m_timeLabel(new QLabel(this)),
       m_bodyLabel(new QLabel(this)) {
+    m_badgeContainer->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_badgeLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_timeLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+    m_bodyLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
+
     auto* rootLayout = new QVBoxLayout(this);
     rootLayout->setContentsMargins(12, 12, 12, 12);
     rootLayout->setSpacing(8);
@@ -99,13 +105,13 @@ ContentListItemWidget::ContentListItemWidget(QWidget* parent)
 
     setAttribute(Qt::WA_StyledBackground, true);
     setObjectName("contentListItem");
+    setCursor(Qt::PointingHandCursor);
     setStyleSheet(
         "#contentListItem {"
         "background-color: #FFFFFF;"
         "border: 1px solid #E2E8F0;"
         "border-radius: 10px;"
-        "}"
-    );
+        "}");
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     rootLayout->activate();
     setFixedHeight(rootLayout->sizeHint().height());
@@ -141,6 +147,14 @@ void ContentListItemWidget::setItemData(const ContentListItemData& data) {
     }
 }
 
+void ContentListItemWidget::mouseReleaseEvent(QMouseEvent* event) {
+    QWidget::mouseReleaseEvent(event);
+
+    if (event->button() == Qt::LeftButton && rect().contains(event->position().toPoint())) {
+        emit clicked(m_bodyText);
+    }
+}
+
 void ContentListItemWidget::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
     refreshBodyText();
@@ -148,31 +162,29 @@ void ContentListItemWidget::resizeEvent(QResizeEvent* event) {
 
 void ContentListItemWidget::refreshBodyText() {
     const int availableWidth = m_bodyLabel->contentsRect().width() > 0
-        ? m_bodyLabel->contentsRect().width()
-        : m_bodyLabel->width();
+                                   ? m_bodyLabel->contentsRect().width()
+                                   : m_bodyLabel->width();
     m_bodyLabel->setText(elideToTwoLines(m_bodyText, m_bodyLabel->font(), availableWidth));
 }
 
 void ContentListItemWidget::updateBadgeStyle() const {
-    m_badgeContainer->setStyleSheet(QString(
-        "QWidget {"
-        "background-color: %1;"
-        "border-radius: 4px;"
-        "}"
-    ).arg(m_badgeBackground.name()));
+    m_badgeContainer->setStyleSheet(QString("QWidget {"
+                                            "background-color: %1;"
+                                            "border-radius: 4px;"
+                                            "}")
+                                        .arg(m_badgeBackground.name()));
 
     m_badgeLabel->setStyleSheet(QString("color: %1;").arg(m_badgeForeground.name()));
 }
 
-void ContentListItemWidget::updateTime()
-{
+void ContentListItemWidget::updateTime() {
     if (!m_updateTime.isValid()) {
         m_timeLabel->clear();
         return;
     }
 
     const QDateTime now = QDateTime::currentDateTime();
-    const qint64 secs = m_updateTime.secsTo(now);   // 正数表示过去
+    const qint64 secs = m_updateTime.secsTo(now);  // 正数表示过去
 
     // 未来时间：直接显示完整日期时间（简洁起见）
     if (secs < 0) {
@@ -181,9 +193,9 @@ void ContentListItemWidget::updateTime()
     }
 
     const qint64 MINUTE = 60;
-    const qint64 HOUR   = 3600;
-    const qint64 DAY    = 86400;
-    const qint64 MONTH  = 30 * DAY;
+    const qint64 HOUR = 3600;
+    const qint64 DAY = 86400;
+    const qint64 MONTH = 30 * DAY;
 
     if (secs < MINUTE) {
         m_timeLabel->setText(QStringLiteral("刚刚"));
@@ -197,7 +209,7 @@ void ContentListItemWidget::updateTime()
         int days = static_cast<int>(secs / DAY);
         m_timeLabel->setText(QString::number(days) + QStringLiteral("天前"));
     } else {
-        int months = static_cast<int>(secs / MONTH);   // 按30天折算月数
+        int months = static_cast<int>(secs / MONTH);  // 按30天折算月数
         if (months < 12) {
             m_timeLabel->setText(QString::number(months) + QStringLiteral("个月前"));
         } else {
