@@ -7,6 +7,7 @@
 #include <QSystemTrayIcon>
 #include <QVBoxLayout>
 #include <QWidget>
+#include <QtGlobal>
 
 #include "./ContentListWidget.hpp"
 #include "./CustomHead.hpp"
@@ -42,8 +43,8 @@ private:
     void setupTray();
     void setupGlobalHotkey();
     void teardownGlobalHotkey();
-    QPoint resolveWindowPosition() const;
-    void showWindow();
+    QPoint resolveWindowPosition(quintptr caretThreadId) const;
+    void showWindow(quintptr caretThreadId = 0);
     void hideWindow();
     void exitFromTray();
 

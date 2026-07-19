@@ -3,6 +3,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QCursor>
 #include <QEvent>
 #include <QGuiApplication>
 #include <QIcon>
@@ -122,7 +123,7 @@ void MainWindow::teardownGlobalHotkey() {
     hotkeyLabel.clear();
 }
 
-QPoint MainWindow::resolveWindowPosition() const {
+QPoint MainWindow::resolveWindowPosition(quintptr caretThreadId) const {
     constexpr int kOffsetX = 12;
     constexpr int kOffsetY = 16;
     constexpr int kScreenMargin = 16;
@@ -131,27 +132,49 @@ QPoint MainWindow::resolveWindowPosition() const {
     QScreen* targetScreen = nullptr;
 
 #ifdef Q_OS_WIN
-    GUITHREADINFO guiThreadInfo;
-    guiThreadInfo.cbSize = sizeof(GUITHREADINFO);
-    if (GetGUIThreadInfo(0, &guiThreadInfo) && guiThreadInfo.hwndCaret != nullptr) {
-        RECT caretRect = guiThreadInfo.rcCaret;
-        POINT caretPoint{caretRect.left, caretRect.bottom};
-        if (ClientToScreen(guiThreadInfo.hwndCaret, &caretPoint)) {
-            anchorPoint = QPoint(caretPoint.x, caretPoint.y);
-            targetScreen = QGuiApplication::screenAt(anchorPoint);
+    if (caretThreadId != 0) {
+        GUITHREADINFO guiThreadInfo{};
+        guiThreadInfo.cbSize = sizeof(GUITHREADINFO);
+        if (GetGUIThreadInfo(static_cast<DWORD>(caretThreadId), &guiThreadInfo) &&
+            guiThreadInfo.hwndCaret != nullptr) {
+            RECT caretRect = guiThreadInfo.rcCaret;
+            POINT caretPoint{caretRect.left, caretRect.bottom};
+            if (ClientToScreen(guiThreadInfo.hwndCaret, &caretPoint)) {
+                anchorPoint = QPoint(caretPoint.x, caretPoint.y);
+                targetScreen = QGuiApplication::screenAt(anchorPoint);
+            }
         }
     }
 #endif
 
     if (targetScreen == nullptr) {
-        targetScreen = QGuiApplication::primaryScreen();
+        const QPoint cursorPosition = QCursor::pos();
+        targetScreen = QGuiApplication::screenAt(cursorPosition);
+        if (targetScreen == nullptr) {
+            targetScreen = QGuiApplication::primaryScreen();
+        }
         if (targetScreen == nullptr) {
             return pos();
         }
 
         const QRect availableGeometry = targetScreen->availableGeometry();
-        return QPoint(availableGeometry.right() - width() - kScreenMargin,
-                      availableGeometry.bottom() - height() - kScreenMargin);
+        const QPoint candidates[] = {
+            cursorPosition,
+            QPoint(cursorPosition.x() - width() + 1, cursorPosition.y()),
+            QPoint(cursorPosition.x(), cursorPosition.y() - height() + 1),
+            QPoint(cursorPosition.x() - width() + 1, cursorPosition.y() - height() + 1),
+        };
+
+        for (const QPoint& candidate : candidates) {
+            if (availableGeometry.contains(QRect(candidate, size()))) {
+                return candidate;
+            }
+        }
+
+        const int maxX = qMax(availableGeometry.left(), availableGeometry.right() - width() + 1);
+        const int maxY = qMax(availableGeometry.top(), availableGeometry.bottom() - height() + 1);
+        return QPoint(qBound(availableGeometry.left(), cursorPosition.x(), maxX),
+                      qBound(availableGeometry.top(), cursorPosition.y(), maxY));
     }
 
     const QRect availableGeometry = targetScreen->availableGeometry();
@@ -243,7 +266,10 @@ bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr
 #ifdef Q_OS_WIN
     MSG* msg = reinterpret_cast<MSG*>(message);
     if (msg != nullptr && msg->message == WM_HOTKEY && msg->wParam == kHotkeyId) {
-        showWindow();
+        const HWND foregroundWindow = GetForegroundWindow();
+        const DWORD foregroundThreadId =
+            foregroundWindow != nullptr ? GetWindowThreadProcessId(foregroundWindow, nullptr) : 0;
+        showWindow(static_cast<quintptr>(foregroundThreadId));
         if (result != nullptr) {
             *result = 0;
         }
@@ -257,8 +283,18 @@ bool MainWindow::nativeEvent(const QByteArray& eventType, void* message, qintptr
     return QMainWindow::nativeEvent(eventType, message, result);
 }
 
-void MainWindow::showWindow() {
-    move(resolveWindowPosition());
+void MainWindow::showWindow(quintptr caretThreadId) {
+#ifdef Q_OS_WIN
+    if (caretThreadId == 0) {
+        const HWND foregroundWindow = GetForegroundWindow();
+        caretThreadId =
+            foregroundWindow != nullptr
+                ? static_cast<quintptr>(GetWindowThreadProcessId(foregroundWindow, nullptr))
+                : 0;
+    }
+#endif
+
+    move(resolveWindowPosition(caretThreadId));
 
     if (isMinimized()) {
         showNormal();
