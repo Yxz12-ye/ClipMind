@@ -403,6 +403,31 @@ QVector<ContentListItemData> SQLService::search(QString str, QString rule, Tag& 
     return searchByTag(tagId, str);
 }
 
+bool SQLService::updateContentTime(const QString& content) {
+    if (!isReady()) {
+        return false;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "UPDATE ContentItem SET updateTime = ? WHERE content = ?;";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        qWarning() << "prepare update content time failed:" << lastError();
+        return false;
+    }
+
+    const QByteArray contentUtf8 = content.toUtf8();
+    sqlite3_bind_int64(stmt, 1, QDateTime::currentDateTime().toSecsSinceEpoch());
+    sqlite3_bind_text(stmt, 2, contentUtf8.constData(), -1, SQLITE_TRANSIENT);
+
+    const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+    if (!ok) {
+        qWarning() << "update content time failed:" << lastError();
+    }
+
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
 bool SQLService::deleteItem(QByteArray hash) {
     if (!isReady()) {
         return false;

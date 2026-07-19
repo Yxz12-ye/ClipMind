@@ -43,5 +43,10 @@ void UIController::pasteContent(const QString& text) {
 
     emit hideWindowRequested();
     AbstractCopyEventListener* pasteListener = listener;
-    QTimer::singleShot(0, pasteListener, [pasteListener, text] { pasteListener->pasteText(text); });
+    QTimer::singleShot(0, pasteListener, [this, pasteListener, text] {
+        if (pasteListener->pasteText(text)) {
+            sql->updateContentTime(text);
+            refreshCurrentView();
+        }
+    });
 }

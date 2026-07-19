@@ -19,7 +19,7 @@ signals:
     void clipboardChanged();
 public slots:
     virtual void getClipboardText() = 0;
-    virtual void pasteText(const QString& text);
+    virtual bool pasteText(const QString& text);
 };
 
 #ifdef Q_OS_WIN
@@ -41,7 +41,7 @@ private:
     bool writeClipboardText(const QString& text);
 private slots:
     void getClipboardText() override;
-    void pasteText(const QString& text) override;
+    bool pasteText(const QString& text) override;
 
 public:
     WindowsCopyEventListener(QObject* parent = nullptr);

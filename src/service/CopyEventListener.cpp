@@ -122,9 +122,9 @@ bool WindowsCopyEventListener::writeClipboardText(const QString& text) {
     return true;
 }
 
-void WindowsCopyEventListener::pasteText(const QString& text) {
+bool WindowsCopyEventListener::pasteText(const QString& text) {
     if (!writeClipboardText(text)) {
-        return;
+        return false;
     }
 
     INPUT inputs[4] = {};
@@ -141,7 +141,10 @@ void WindowsCopyEventListener::pasteText(const QString& text) {
 
     if (SendInput(4, inputs, sizeof(INPUT)) != 4) {
         qWarning() << "无法发送粘贴快捷键";
+        return false;
     }
+
+    return true;
 }
 
 HiddenWindow::HiddenWindow(QWidget* parent) : QWidget(parent), m_listener(nullptr) {}
@@ -162,8 +165,9 @@ QString AbstractCopyEventListener::text() const {
     return lastText;
 }
 
-void AbstractCopyEventListener::pasteText(const QString& text) {
+bool AbstractCopyEventListener::pasteText(const QString& text) {
     Q_UNUSED(text);
+    return false;
 }
 
 AbstractCopyEventListener* createCopyEventListener(QObject* parent) {
