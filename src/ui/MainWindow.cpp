@@ -260,12 +260,12 @@ QPoint MainWindow::resolveWindowPosition(quintptr caretThreadId) const {
     const int dx = kOffsetX;
     const int dy = kOffsetY;
 
-    // 四个候选点（优先级：左上 → 左下 → 右上 → 右下）
+    // 四个候选点（优先级：左上 → 左下 → 右上 → 右下）。偏移始终留在窗口外侧。
     QPoint candidates[4];
-    candidates[0] = anchorPoint + QPoint(dx - w + 1, dy - h + 1); // 左上（窗口右下角靠近）
-    candidates[1] = anchorPoint + QPoint(dx - w + 1, dy);          // 左下（窗口右上角靠近）
-    candidates[2] = anchorPoint + QPoint(dx, dy - h + 1);          // 右上（窗口左下角靠近）
-    candidates[3] = anchorPoint + QPoint(dx, dy);                  // 右下（窗口左上角靠近）
+    candidates[0] = anchorPoint + QPoint(-dx - w + 1, -dy - h + 1);  // 窗口在插入符左上
+    candidates[1] = anchorPoint + QPoint(-dx - w + 1, dy);           // 窗口在插入符左下
+    candidates[2] = anchorPoint + QPoint(dx, -dy - h + 1);           // 窗口在插入符右上
+    candidates[3] = anchorPoint + QPoint(dx, dy);                    // 窗口在插入符右下
 
     QPoint targetPoint;
     bool found = false;
