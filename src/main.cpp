@@ -1,15 +1,26 @@
-#include<QApplication>
-#include"./ui/MainWindow.hpp"
+#include <QApplication>
 
-int main(int argc, char** argv){
 #ifdef Q_OS_WIN
-    CoInitializeEx(NULL, COINIT_MULTITHREADED);
+#include <objbase.h>
 #endif
-    QApplication app(argc, argv);
-    app.setQuitOnLastWindowClosed(false);
-    MainWindow w;
+
+#include "./ui/MainWindow.hpp"
+
+int main(int argc, char** argv) {
 #ifdef Q_OS_WIN
-    CoUninitialize();
+    const HRESULT comInitializationResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 #endif
-    return app.exec();
+    int exitCode = 0;
+    {
+        QApplication app(argc, argv);
+        app.setQuitOnLastWindowClosed(false);
+        MainWindow w;
+        exitCode = app.exec();
+    }
+#ifdef Q_OS_WIN
+    if (SUCCEEDED(comInitializationResult)) {
+        CoUninitialize();
+    }
+#endif
+    return exitCode;
 }
