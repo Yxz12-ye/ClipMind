@@ -47,6 +47,10 @@ private:
     void showWindow(quintptr caretThreadId = 0);
     void hideWindow();
     void exitFromTray();
+    static QPoint adjustWindowPositionToScreen(const QPoint& cursorPos,
+                                           const QSize& windowSize,
+                                           const QRect& availableGeometry);
+    QScreen* getGlobalActiveWindowScreen() const;
 
     UIController* controller;
 
