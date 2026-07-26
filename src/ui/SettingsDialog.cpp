@@ -1,16 +1,24 @@
 #include "SettingsDialog.hpp"
 
+#include <QBrush>
 #include <QCheckBox>
+#include <QColorDialog>
+#include <QComboBox>
+#include <QDialogButtonBox>
 #include <QEvent>
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLineEdit>
 #include <QListWidget>
 #include <QPalette>
+#include <QPushButton>
 #include <QStackedWidget>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 #include "CustomHead.hpp"
+#include "struct.hpp"
 
 namespace {
 
@@ -61,6 +69,170 @@ QWidget* createSection(const QString& title, QWidget* parent) {
     return section;
 }
 
+QString modeName(SearchMode mode) {
+    switch (mode) {
+    case SearchMode::Semantics:
+        return QStringLiteral("Semantics");
+    case SearchMode::Regex:
+        return QStringLiteral("Regex");
+    case SearchMode::None:
+        return QStringLiteral("None");
+    }
+
+    return QString();
+}
+
+class TagEditorDialog : public QDialog {
+public:
+    explicit TagEditorDialog(QWidget* parent = nullptr) : QDialog(parent) {
+        setWindowTitle(QStringLiteral("添加标签"));
+        setModal(true);
+        setFixedSize(440, 350);
+
+        auto* layout = new QVBoxLayout(this);
+        layout->setContentsMargins(24, 20, 24, 20);
+        layout->setSpacing(10);
+
+        auto* title = new QLabel(QStringLiteral("添加标签"), this);
+        title->setObjectName("tagEditorTitle");
+        layout->addWidget(title);
+
+        layout->addWidget(new QLabel(QStringLiteral("名称"), this));
+        nameInput = new QLineEdit(this);
+        nameInput->setPlaceholderText(QStringLiteral("例如：链接"));
+        layout->addWidget(nameInput);
+
+        layout->addWidget(new QLabel(QStringLiteral("匹配方式"), this));
+        modeInput = new QComboBox(this);
+        modeInput->addItem(QStringLiteral("Semantics"), static_cast<int>(SearchMode::Semantics));
+        modeInput->addItem(QStringLiteral("Regex"), static_cast<int>(SearchMode::Regex));
+        modeInput->addItem(QStringLiteral("None"), static_cast<int>(SearchMode::None));
+        layout->addWidget(modeInput);
+
+        ruleLabel = new QLabel(QStringLiteral("规则（用于语义或正则匹配）"), this);
+        layout->addWidget(ruleLabel);
+        ruleInput = new QLineEdit(this);
+        ruleInput->setPlaceholderText(QStringLiteral("例如：网页链接 或 https?://\\S+"));
+        layout->addWidget(ruleInput);
+
+        auto* colorLayout = new QHBoxLayout;
+        colorLayout->setContentsMargins(0, 2, 0, 2);
+        colorLayout->setSpacing(10);
+        colorLayout->addWidget(new QLabel(QStringLiteral("文本颜色"), this));
+        foregroundButton = new QPushButton(this);
+        foregroundButton->setObjectName("tagColorButton");
+        foregroundButton->setToolTip(QStringLiteral("选择标签文本颜色"));
+        foregroundButton->setFixedSize(28, 28);
+        colorLayout->addWidget(foregroundButton);
+        colorLayout->addSpacing(12);
+        colorLayout->addWidget(new QLabel(QStringLiteral("背景颜色"), this));
+        backgroundButton = new QPushButton(this);
+        backgroundButton->setObjectName("tagColorButton");
+        backgroundButton->setToolTip(QStringLiteral("选择标签背景颜色"));
+        backgroundButton->setFixedSize(28, 28);
+        colorLayout->addWidget(backgroundButton);
+        colorLayout->addStretch();
+        layout->addLayout(colorLayout);
+
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok, this);
+        buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("添加"));
+        buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
+        buttons->button(QDialogButtonBox::Ok)->setEnabled(false);
+        layout->addWidget(buttons);
+
+        updateColorButton(foregroundButton, foregroundColor);
+        updateColorButton(backgroundButton, backgroundColor);
+        updateRuleHint();
+        applyTheme();
+        connect(nameInput, &QLineEdit::textChanged, this, [buttons](const QString& value) {
+            buttons->button(QDialogButtonBox::Ok)->setEnabled(!value.trimmed().isEmpty());
+        });
+        connect(modeInput, &QComboBox::currentIndexChanged, this,
+                [this](int) { updateRuleHint(); });
+        connect(foregroundButton, &QPushButton::clicked, this,
+                [this] { selectColor(foregroundButton, foregroundColor); });
+        connect(backgroundButton, &QPushButton::clicked, this,
+                [this] { selectColor(backgroundButton, backgroundColor); });
+        connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    }
+
+    Tag tag() const {
+        const auto mode = static_cast<SearchMode>(modeInput->currentData().toInt());
+        return Tag(nameInput->text().trimmed(), ruleInput->text().trimmed(), mode, backgroundColor,
+                   foregroundColor);
+    }
+
+private:
+    QLineEdit* nameInput;
+    QComboBox* modeInput;
+    QLabel* ruleLabel;
+    QLineEdit* ruleInput;
+    QPushButton* foregroundButton;
+    QPushButton* backgroundButton;
+    QColor foregroundColor = QColor("#1E3A8A");
+    QColor backgroundColor = QColor("#DBEAFE");
+
+    void applyTheme() {
+        const bool darkMode = palette().color(QPalette::Window).lightness() < 128;
+        const QString background = darkMode ? "#1C1C1C" : "#FFFFFF";
+        const QString border = darkMode ? "#383838" : "#CBD5E1";
+        const QString text = darkMode ? "#F1F5F9" : "#0F172A";
+        const QString inputBackground = darkMode ? "#252525" : "#F8FAFC";
+
+        setStyleSheet(
+            QString(
+                "QDialog { background: %1; color: %2; }"
+                "QLabel { color: %2; }"
+                "QLabel#tagEditorTitle { font-size: 18px; font-weight: 600; }"
+                "QLineEdit, QComboBox {"
+                "background: %3; border: 1px solid %4; border-radius: 6px; padding: 6px 8px;"
+                "color: %2;"
+                "}"
+                "QPushButton { border-radius: 6px; padding: 6px 12px; }"
+                "QDialogButtonBox QPushButton { background: #3B82F6; border: none; color: white; }"
+                "QDialogButtonBox QPushButton:hover { background: #2563EB; }")
+                .arg(background, text, inputBackground, border));
+    }
+
+    void updateColorButton(QPushButton* button, const QColor& color) {
+        button->setStyleSheet(
+            QString("background-color: %1; border: 1px solid #94A3B8; border-radius: 5px;")
+                .arg(color.name(QColor::HexRgb)));
+    }
+
+    void selectColor(QPushButton* button, QColor& color) {
+        const QColor selectedColor =
+            QColorDialog::getColor(color, this, QStringLiteral("选择颜色"));
+        if (!selectedColor.isValid()) {
+            return;
+        }
+
+        color = selectedColor;
+        updateColorButton(button, color);
+    }
+
+    void updateRuleHint() {
+        const auto mode = static_cast<SearchMode>(modeInput->currentData().toInt());
+        if (mode == SearchMode::Semantics) {
+            ruleLabel->setText(QStringLiteral("语义规则（用于自动语义匹配）"));
+        } else if (mode == SearchMode::Regex) {
+            ruleLabel->setText(QStringLiteral("正则表达式（用于自动正则匹配）"));
+        } else {
+            ruleLabel->setText(QStringLiteral("规则（None 暂不参与自动匹配）"));
+        }
+    }
+};
+
+enum TagDataRole {
+    TagNameRole = Qt::UserRole,
+    TagRuleRole,
+    TagModeRole,
+    TagForegroundRole,
+    TagBackgroundRole,
+    TagSystemRole,
+};
+
 }  // namespace
 
 SettingsDialog::SettingsDialog(bool hideAfterPaste, bool showTrayIcon, QWidget* parent)
@@ -68,7 +240,7 @@ SettingsDialog::SettingsDialog(bool hideAfterPaste, bool showTrayIcon, QWidget* 
     setWindowFlag(Qt::FramelessWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
     setModal(true);
-    setFixedSize(680, 470);
+    setFixedSize(760, 520);
     setupUI();
     autoHide->setChecked(hideAfterPaste);
     showInTray->setChecked(showTrayIcon);
@@ -101,7 +273,8 @@ void SettingsDialog::setupUI() {
     categories->setFixedWidth(152);
     categories->setFrameShape(QFrame::NoFrame);
     categories->setFocusPolicy(Qt::NoFocus);
-    categories->addItems({QStringLiteral("通用"), QStringLiteral("快捷键"), QStringLiteral("外观"),
+    categories->addItems({QStringLiteral("通用"), QStringLiteral("标签管理"),
+                          QStringLiteral("快捷键"), QStringLiteral("外观"),
                           QStringLiteral("关于")});
     categories->setCurrentRow(0);
 
@@ -123,6 +296,45 @@ void SettingsDialog::setupUI() {
                                                showInTray, behaviorSection));
     generalLayout->addWidget(behaviorSection);
     generalLayout->addStretch();
+
+    auto* tagPage =
+        createPage(QStringLiteral("标签管理"),
+                   QStringLiteral("通过上下按钮调整自动匹配优先级，越靠上优先级越高"), pages);
+    auto* tagLayout = qobject_cast<QVBoxLayout*>(tagPage->layout());
+    auto* tagToolbar = new QHBoxLayout;
+    tagToolbar->setContentsMargins(0, 0, 0, 0);
+    auto* priorityHint = createLabel(QStringLiteral("单条内容仅应用优先级最高的一个自动匹配标签"),
+                                     "settingsItemDescription", tagPage);
+    auto* addTagButton = new QPushButton(QStringLiteral("+ 添加标签"), tagPage);
+    addTagButton->setObjectName("addTagButton");
+    auto* moveUpButton = new QToolButton(tagPage);
+    moveUpButton->setObjectName("tagToolbarButton");
+    moveUpButton->setArrowType(Qt::UpArrow);
+    moveUpButton->setToolTip(QStringLiteral("上移标签，提高优先级"));
+    auto* moveDownButton = new QToolButton(tagPage);
+    moveDownButton->setObjectName("tagToolbarButton");
+    moveDownButton->setArrowType(Qt::DownArrow);
+    moveDownButton->setToolTip(QStringLiteral("下移标签，降低优先级"));
+    auto* deleteTagButton = new QPushButton(QStringLiteral("删除"), tagPage);
+    deleteTagButton->setObjectName("deleteTagButton");
+    deleteTagButton->setEnabled(false);
+    tagToolbar->addWidget(priorityHint, 1);
+    tagToolbar->addWidget(addTagButton);
+    tagToolbar->addWidget(moveUpButton);
+    tagToolbar->addWidget(moveDownButton);
+    tagToolbar->addWidget(deleteTagButton);
+    tagLayout->addLayout(tagToolbar);
+
+    tagList = new QListWidget(tagPage);
+    tagList->setObjectName("tagManagerList");
+    tagList->setFrameShape(QFrame::NoFrame);
+    tagList->setSelectionMode(QAbstractItemView::SingleSelection);
+    tagList->setDragDropMode(QAbstractItemView::NoDragDrop);
+    tagList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    tagLayout->addWidget(tagList, 1);
+
+    addTagItem(Tag(QStringLiteral("LINK"), QStringLiteral("https?://\\S+"), SearchMode::Regex,
+                   QColor("#DBEAFE"), QColor("#1D4ED8"), true));
 
     auto* shortcutPage =
         createPage(QStringLiteral("快捷键"), QStringLiteral("快速呼出 ClipMind"), pages);
@@ -160,6 +372,7 @@ void SettingsDialog::setupUI() {
     aboutLayout->addStretch();
 
     pages->addWidget(generalPage);
+    pages->addWidget(tagPage);
     pages->addWidget(shortcutPage);
     pages->addWidget(appearancePage);
     pages->addWidget(aboutPage);
@@ -172,6 +385,69 @@ void SettingsDialog::setupUI() {
     connect(head, &CustomHead::moveRequested, this,
             [this](const QPoint& position) { move(position); });
     connect(categories, &QListWidget::currentRowChanged, pages, &QStackedWidget::setCurrentIndex);
+    connect(addTagButton, &QPushButton::clicked, this, [this] { addTag(); });
+    connect(moveUpButton, &QToolButton::clicked, this,
+            [this] { moveTagItem(tagList->currentItem(), -1); });
+    connect(moveDownButton, &QToolButton::clicked, this,
+            [this] { moveTagItem(tagList->currentItem(), 1); });
+    connect(deleteTagButton, &QPushButton::clicked, this,
+            [this] { removeTagItem(tagList->currentItem()); });
+    connect(tagList, &QListWidget::currentItemChanged, this,
+            [deleteTagButton](QListWidgetItem* current, QListWidgetItem*) {
+                deleteTagButton->setEnabled(current != nullptr &&
+                                            !current->data(TagSystemRole).toBool());
+            });
+}
+
+void SettingsDialog::addTag() {
+    TagEditorDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    addTagItem(dialog.tag());
+}
+
+void SettingsDialog::addTagItem(const Tag& tag) {
+    auto* item = new QListWidgetItem(tagList);
+    item->setData(TagNameRole, tag.tagName);
+    item->setData(TagRuleRole, tag.rule);
+    item->setData(TagModeRole, static_cast<int>(tag.mode));
+    item->setData(TagForegroundRole, tag.tagNameColor);
+    item->setData(TagBackgroundRole, tag.tagBackColor);
+    item->setData(TagSystemRole, tag.isSysTag);
+    item->setText(QStringLiteral("%1    %2  |  %3%4")
+                      .arg(tag.tagName, modeName(tag.mode), tag.rule,
+                           tag.isSysTag ? QStringLiteral("    系统") : QString()));
+    item->setToolTip(QStringLiteral("%1\n%2").arg(modeName(tag.mode), tag.rule));
+    item->setForeground(QBrush(tag.tagNameColor));
+    item->setBackground(QBrush(tag.tagBackColor));
+    item->setSizeHint(QSize(0, 34));
+    tagList->setCurrentItem(item);
+}
+
+void SettingsDialog::removeTagItem(QListWidgetItem* item) {
+    if (item == nullptr || item->data(TagSystemRole).toBool()) {
+        return;
+    }
+
+    delete tagList->takeItem(tagList->row(item));
+}
+
+void SettingsDialog::moveTagItem(QListWidgetItem* item, int offset) {
+    if (item == nullptr) {
+        return;
+    }
+
+    const int currentRow = tagList->row(item);
+    const int targetRow = qBound(0, currentRow + offset, tagList->count() - 1);
+    if (currentRow == targetRow) {
+        return;
+    }
+
+    QListWidgetItem* movedItem = tagList->takeItem(currentRow);
+    tagList->insertItem(targetRow, movedItem);
+    tagList->setCurrentItem(movedItem);
 }
 
 bool SettingsDialog::hideAfterPasteEnabled() const {
@@ -213,6 +489,22 @@ void SettingsDialog::applyTheme() {
             "background: #3B82F6; color: white;"
             "}"
             "QStackedWidget#settingsPages { background: transparent; }"
+            "QListWidget#tagManagerList { background: transparent; outline: none; }"
+            "QListWidget#tagManagerList::item { border: 1px solid %6; border-radius: 6px; "
+            "margin-bottom: 4px; padding: 5px 8px; }"
+            "QListWidget#tagManagerList::item:selected { border: 2px solid #3B82F6; }"
+            "QToolButton#tagToolbarButton { border: none; border-radius: 6px; color: %5; }"
+            "QToolButton#tagToolbarButton:hover { background: %2; color: %4; }"
+            "QPushButton#addTagButton {"
+            "background: #3B82F6; border: none; border-radius: 6px; color: white; padding: 6px "
+            "12px;"
+            "}"
+            "QPushButton#addTagButton:hover { background: #2563EB; }"
+            "QPushButton#deleteTagButton {"
+            "background: transparent; border: none; color: #DC2626; padding: 4px 6px;"
+            "}"
+            "QPushButton#deleteTagButton:hover { background: rgba(220, 38, 38, 0.10); "
+            "border-radius: 5px; }"
             "QLabel#settingsPageTitle { color: %4; font-size: 20px; font-weight: 600; }"
             "QLabel#settingsPageDescription, QLabel#settingsItemDescription { color: %5; }"
             "QLabel#settingsItemTitle { color: %4; font-weight: 600; }"

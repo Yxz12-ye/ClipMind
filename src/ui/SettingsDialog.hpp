@@ -5,9 +5,11 @@
 class QEvent;
 class QCheckBox;
 class QListWidget;
+class QListWidgetItem;
 class QStackedWidget;
 
 class CustomHead;
+struct Tag;
 
 class SettingsDialog : public QDialog {
 public:
@@ -24,9 +26,14 @@ private:
     CustomHead* head;
     QListWidget* categories;
     QStackedWidget* pages;
+    QListWidget* tagList;
     QCheckBox* autoHide;
     QCheckBox* showInTray;
 
     void setupUI();
     void applyTheme();
+    void addTag();
+    void addTagItem(const Tag& tag);
+    void removeTagItem(QListWidgetItem* item);
+    void moveTagItem(QListWidgetItem* item, int offset);
 };

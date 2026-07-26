@@ -9,7 +9,7 @@
 enum class SearchMode {
     Semantics = 0,  // 语义搜索
     Regex,          // 正则
-    None            // 都不是, 目前仅用于兜底标签
+    None            // 都不是
 };
 
 struct Tag  // 标签数据结构
