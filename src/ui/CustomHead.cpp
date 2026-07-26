@@ -6,6 +6,11 @@
 void CustomHead::setupUI() {
     icon.load(QString(":/img/icon.svg"));
     icon.setFixedSize(16, 16);
+    settingsButton.setFixedSize(18, 18);
+    settingsButton.setIcon(QIcon(":/img/settings.svg"));
+    settingsButton.setIconSize(QSize(14, 14));
+    settingsButton.setAutoRaise(true);
+    settingsButton.setCursor(Qt::PointingHandCursor);
     closeButton.setFixedSize(18, 18);
     closeButton.setIcon(QIcon(":/img/x.svg"));
     closeButton.setIconSize(QSize(14, 14));
@@ -17,13 +22,24 @@ void CustomHead::setupUI() {
     layout.addSpacing(8);
     layout.addWidget(&title);
     layout.addStretch();
+    layout.addWidget(&settingsButton);
+    layout.addSpacing(8);
     layout.addWidget(&closeButton);
     layout.addSpacing(16);
 }
 
-CustomHead::CustomHead(QWidget* parent)
-    : QWidget(parent), icon(this), title("ClipMind", this), layout(this), closeButton(this) {
-    setFixedSize(360, 44);
+CustomHead::CustomHead(QWidget* parent) : CustomHead(QStringLiteral("ClipMind"), true, parent) {}
+
+CustomHead::CustomHead(const QString& titleText, bool showSettingsButton, QWidget* parent)
+    : QWidget(parent),
+      icon(this),
+      title(titleText, this),
+      layout(this),
+      settingsButton(this),
+      closeButton(this) {
+    setFixedHeight(44);
+    settingsButton.setVisible(showSettingsButton);
+    connect(&settingsButton, &QToolButton::clicked, this, &CustomHead::settingsRequested);
     connect(&closeButton, &QToolButton::clicked, this, &CustomHead::closeRequested);
     setupUI();
 }
@@ -41,7 +57,8 @@ void CustomHead::mousePressEvent(QMouseEvent* event) {
         }
 
         dragging = true;
-        dragPosition = event->globalPosition().toPoint() - topLevelWindow->frameGeometry().topLeft();
+        dragPosition =
+            event->globalPosition().toPoint() - topLevelWindow->frameGeometry().topLeft();
         event->accept();
     }
 }

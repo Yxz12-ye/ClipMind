@@ -1,20 +1,20 @@
 #pragma once
 
-#include <QWidget>
-#include <QSvgWidget>
-#include <QLabel>
 #include <QHBoxLayout>
-#include <QToolButton>
-#include <QPoint>
+#include <QLabel>
 #include <QMouseEvent>
+#include <QPoint>
+#include <QSvgWidget>
+#include <QToolButton>
+#include <QWidget>
 
-class CustomHead:public QWidget
-{
+class CustomHead : public QWidget {
     Q_OBJECT
 private:
     QSvgWidget icon;
-    QLabel title; 
+    QLabel title;
     QHBoxLayout layout;
+    QToolButton settingsButton;
     QToolButton closeButton;
 
     QPoint dragPosition;
@@ -24,10 +24,12 @@ private:
 
 public:
     CustomHead(QWidget* parent);
-    ~CustomHead()=default;
+    CustomHead(const QString& titleText, bool showSettingsButton, QWidget* parent = nullptr);
+    ~CustomHead() = default;
 
 signals:
     void closeRequested();
+    void settingsRequested();
     void moveRequested(QPoint);
 
 protected:

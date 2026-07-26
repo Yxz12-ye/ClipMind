@@ -33,6 +33,9 @@ private:
     QMenu trayMenu;
     QSystemTrayIcon trayIcon;
     bool trayExitRequested = false;
+    bool settingsDialogOpen = false;
+    bool hideAfterPaste = true;
+    bool showTrayIcon = true;
     bool hotkeyRegistered = false;
     unsigned int hotkeyModifiers = 0;
     unsigned int hotkeyVirtualKey = 0;
@@ -43,13 +46,13 @@ private:
     void setupTray();
     void setupGlobalHotkey();
     void teardownGlobalHotkey();
+    void openSettings();
     QPoint resolveWindowPosition(quintptr caretThreadId) const;
     void showWindow(quintptr caretThreadId = 0);
     void hideWindow();
     void exitFromTray();
-    static QPoint adjustWindowPositionToScreen(const QPoint& cursorPos,
-                                           const QSize& windowSize,
-                                           const QRect& availableGeometry);
+    static QPoint adjustWindowPositionToScreen(const QPoint& cursorPos, const QSize& windowSize,
+                                               const QRect& availableGeometry);
     QScreen* getGlobalActiveWindowScreen() const;
 
     UIController* controller;

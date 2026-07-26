@@ -10,8 +10,11 @@
 #include <QItemSelectionModel>
 #include <QPalette>
 #include <QScreen>
+#include <QSettings>
 #include <QStandardItem>
 #include <QStringList>
+
+#include "SettingsDialog.hpp"
 
 #ifdef Q_OS_WIN
 #include <WinUser.h>
@@ -114,7 +117,9 @@ void MainWindow::setupTray() {
             });
 
     trayIcon.setContextMenu(&trayMenu);
-    trayIcon.show();
+    if (showTrayIcon) {
+        trayIcon.show();
+    }
 }
 
 void MainWindow::setupGlobalHotkey() {
@@ -280,11 +285,9 @@ QPoint MainWindow::resolveWindowPosition(quintptr caretThreadId) const {
     if (!found) {
         // 所有候选都不合适，退回到强制约束（以 anchorPoint + 偏移为基准）
         QPoint fallback = anchorPoint + QPoint(dx, dy);
-        targetPoint.setX(qBound(availableGeometry.left() + kScreenMargin,
-                                fallback.x(),
+        targetPoint.setX(qBound(availableGeometry.left() + kScreenMargin, fallback.x(),
                                 availableGeometry.right() - w - kScreenMargin));
-        targetPoint.setY(qBound(availableGeometry.top() + kScreenMargin,
-                                fallback.y(),
+        targetPoint.setY(qBound(availableGeometry.top() + kScreenMargin, fallback.y(),
                                 availableGeometry.bottom() - h - kScreenMargin));
     }
     return targetPoint;
@@ -309,6 +312,10 @@ MainWindow::MainWindow()
     central.setObjectName("centralPanel");
     central.setAttribute(Qt::WA_StyledBackground, true);
 
+    QSettings settings;
+    hideAfterPaste = settings.value("settings/hideAfterPaste", true).toBool();
+    showTrayIcon = settings.value("settings/showTrayIcon", true).toBool();
+
     tagContainer.setFixedSize(328, 28);
     tagContainer.setAttribute(Qt::WA_StyledBackground, true);
     tagContainer.setStyleSheet("QWidget { background: transparent; }");
@@ -326,6 +333,7 @@ MainWindow::MainWindow()
     setupTray();
     setCentralWidget(&central);
     connect(&head, &CustomHead::closeRequested, this, &QWidget::close);
+    connect(&head, &CustomHead::settingsRequested, this, &MainWindow::openSettings);
     connect(&head, &CustomHead::moveRequested, this, [=](QPoint pos) { move(pos); });
     setupUI();
 
@@ -334,7 +342,11 @@ MainWindow::MainWindow()
     connect(&searchWidget, &SearchWidget::inputTextChanged, controller,
             &UIController::requireSearch);
     connect(&contentList, &ContentListWidget::itemClicked, controller, &UIController::pasteContent);
-    connect(controller, &UIController::hideWindowRequested, this, &MainWindow::hideWindow);
+    connect(controller, &UIController::hideWindowRequested, this, [this] {
+        if (hideAfterPaste) {
+            hideWindow();
+        }
+    });
 }
 
 MainWindow::~MainWindow() {
@@ -348,7 +360,7 @@ void MainWindow::changeEvent(QEvent* event) {
     }
 
     if (event->type() == QEvent::ActivationChange && isVisible() && !isActiveWindow() &&
-        !trayExitRequested) {
+        !trayExitRequested && !settingsDialogOpen) {
         hideWindow();
     }
 
@@ -424,6 +436,23 @@ void MainWindow::hideWindow() {
     hide();
 }
 
+void MainWindow::openSettings() {
+    settingsDialogOpen = true;
+    SettingsDialog dialog(hideAfterPaste, showTrayIcon, this);
+    dialog.exec();
+    settingsDialogOpen = false;
+
+    hideAfterPaste = dialog.hideAfterPasteEnabled();
+    showTrayIcon = dialog.trayIconEnabled();
+    QSettings settings;
+    settings.setValue("settings/hideAfterPaste", hideAfterPaste);
+    settings.setValue("settings/showTrayIcon", showTrayIcon);
+    trayIcon.setVisible(showTrayIcon);
+
+    raise();
+    activateWindow();
+}
+
 void MainWindow::exitFromTray() {
     trayExitRequested = true;
     teardownGlobalHotkey();
@@ -433,8 +462,7 @@ void MainWindow::exitFromTray() {
 }
 
 QPoint MainWindow::adjustWindowPositionToScreen(const QPoint& cursorPos, const QSize& windowSize,
-                                                const QRect& availableGeometry)
-{
+                                                const QRect& availableGeometry) {
     const int w = windowSize.width();
     const int h = windowSize.height();
 
@@ -444,10 +472,10 @@ QPoint MainWindow::adjustWindowPositionToScreen(const QPoint& cursorPos, const Q
     // 左下角锚点：窗口左下角在光标处
     // 右下角锚点：窗口右下角在光标处
     const QPoint candidates[] = {
-        cursorPos,                                                      // 左上角
-        QPoint(cursorPos.x() - w + 1, cursorPos.y()),                  // 右上角
-        QPoint(cursorPos.x(), cursorPos.y() - h + 1),                  // 左下角
-        QPoint(cursorPos.x() - w + 1, cursorPos.y() - h + 1),          // 右下角
+        cursorPos,                                             // 左上角
+        QPoint(cursorPos.x() - w + 1, cursorPos.y()),          // 右上角
+        QPoint(cursorPos.x(), cursorPos.y() - h + 1),          // 左下角
+        QPoint(cursorPos.x() - w + 1, cursorPos.y() - h + 1),  // 右下角
     };
 
     for (const QPoint& candidate : candidates) {
@@ -457,10 +485,8 @@ QPoint MainWindow::adjustWindowPositionToScreen(const QPoint& cursorPos, const Q
     }
 
     // 所有锚点都不合适，退化为强制约束（保证窗口不超出屏幕边界）
-    const int maxX = qMax(availableGeometry.left(),
-                          availableGeometry.right() - w + 1);
-    const int maxY = qMax(availableGeometry.top(),
-                          availableGeometry.bottom() - h + 1);
+    const int maxX = qMax(availableGeometry.left(), availableGeometry.right() - w + 1);
+    const int maxY = qMax(availableGeometry.top(), availableGeometry.bottom() - h + 1);
 
     return QPoint(qBound(availableGeometry.left(), cursorPos.x(), maxX),
                   qBound(availableGeometry.top(), cursorPos.y(), maxY));
