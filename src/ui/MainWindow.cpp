@@ -399,7 +399,6 @@ void MainWindow::showWindow(quintptr caretThreadId) {
 #endif
 
     QPoint _pos = resolveWindowPosition(caretThreadId);
-    qDebug() << "POS:" << _pos;
     move(_pos);
 
     if (isMinimized()) {
@@ -471,6 +470,9 @@ void MainWindow::updateCopyList(QVector<ContentListItemData> data) {
     contentList.setItems(data);
 }
 
+/**
+ * @ref https://www.autoahk.com/archives/44158
+ */
 HWND GetCaretPosEx(long* pX, long* pY, long* pW, long* pH) {
     CComPtr<IUIAutomation> uia;
     CComPtr<IUIAutomationElement> eleFocus;
