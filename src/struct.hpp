@@ -20,7 +20,7 @@ struct Tag  // 标签数据结构
     QColor tagBackColor;  // tag标签的背景颜色, 对应ContentListItemWidget::m_badgeBackground
     bool isSysTag = false;
     SearchMode mode = SearchMode::None;
-    int priority = 0;  // 标签显示顺序, 越小越靠前
+    int priority = 0;  // 标签显示/匹配顺序, 越小越靠前
 
     Tag() = default;
 

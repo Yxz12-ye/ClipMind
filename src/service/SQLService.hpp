@@ -12,17 +12,17 @@
 
 #define DATABASE_DIR "/AppData/Local/ClipMind"
 #define DATABASE_NAME "Clipboard.db"
-#define TABLE_TAG                                              \
-    "-- 创建 Tag 表\n"                                         \
-    "CREATE TABLE IF NOT EXISTS Tag (\n"                       \
-    "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n"              \
-    "    tagName TEXT NOT NULL,\n"                             \
-    "    rule TEXT,\n"                                         \
-    "    tagNameColor TEXT,      -- 存储为字符串\n"            \
-    "    tagBackColor TEXT,\n"                                 \
-    "    isSysTag INTEGER,       -- 0 或 1\n"                  \
-    "    mode INTEGER,           -- SearchMode 枚举值\n"       \
-    "    priority INTEGER DEFAULT 0 -- 显示顺序, 越小越靠前\n" \
+#define TABLE_TAG                                                   \
+    "-- 创建 Tag 表\n"                                              \
+    "CREATE TABLE IF NOT EXISTS Tag (\n"                            \
+    "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n"                   \
+    "    tagName TEXT NOT NULL,\n"                                  \
+    "    rule TEXT,\n"                                              \
+    "    tagNameColor TEXT,      -- 存储为字符串\n"                 \
+    "    tagBackColor TEXT,\n"                                      \
+    "    isSysTag INTEGER,       -- 0 或 1\n"                       \
+    "    mode INTEGER,           -- SearchMode 枚举值\n"            \
+    "    priority INTEGER DEFAULT 0 -- 显示/匹配顺序, 越小越靠前\n" \
     ");"
 #define TABLE_CONTENT                                                               \
     "-- 创建 ContentItem 表\n"                                                      \
@@ -63,7 +63,7 @@ private:
         "INSERT INTO ContentItem (tag_id, content, copyTime, updateTime, hash, pinned) "
         "VALUES (?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(hash) DO UPDATE SET "
-        "updateTime = excluded.updateTime;";
+        "tag_id = excluded.tag_id, updateTime = excluded.updateTime;";
 
     sqlite3_stmt* searchTagStmt = nullptr;
     const char* sqlSearchTag = "SELECT id FROM Tag WHERE tagName = ?;";
@@ -92,8 +92,9 @@ public:
     bool deleteItem(QByteArray hash);    // 后面再添加其他删除(比如正则表达式删除等)
     QVector<ContentListItemData> get();  // 根据updateTime倒序读取前MAX_ITEM个对象
 
-    // 标签管理: 增删改查与显示排序
-    QVector<Tag> getTags() const;  // 全部标签, 包含 TEXT/LINK 系统保留标签
+    // 标签管理: 增删改查、排序与单标签匹配
+    QVector<Tag> getTags() const;                // 全部标签, 包含 TEXT/LINK 系统保留标签
+    Tag matchTag(const QString& content) const;  // 返回首个匹配的 Regex 标签, 否则返回 TEXT
     bool updateTag(const QString& originalName, const Tag& tag);  // 重名时返回 false
     bool deleteTag(const QString& tagName);
     bool reorderTags(const QStringList& tagNames);  // 按给定顺序写入 0..n-1

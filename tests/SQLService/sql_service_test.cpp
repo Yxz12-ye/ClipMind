@@ -32,6 +32,73 @@ TEST(SQLServiceTest, SavingDuplicateContentRefreshesExistingUpdateTime) {
     EXPECT_EQ(items.front().updateTime, secondTime);
 }
 
+TEST(SQLServiceTest, MatchTagReturnsFirstRegexMatchAndSkipsUnsupportedModes) {
+    QTemporaryDir tempDir;
+    ASSERT_TRUE(tempDir.isValid());
+    SQLService service(QDir(tempDir.filePath(QStringLiteral("db"))));
+
+    const Tag semanticTag{QStringLiteral("SEMANTIC"), QStringLiteral("example"),
+                          SearchMode::Semantics};
+    const Tag noneTag{QStringLiteral("NONE"), QStringLiteral("example"), SearchMode::None};
+    const Tag invalidRegexTag{QStringLiteral("INVALID"), QStringLiteral("("), SearchMode::Regex};
+    const Tag broadTag{QStringLiteral("BROAD"), QStringLiteral("example\\.com"), SearchMode::Regex};
+    const Tag specificTag{QStringLiteral("SPECIFIC"), QStringLiteral("https://example\\.com/docs"),
+                          SearchMode::Regex};
+
+    ASSERT_TRUE(service.save(semanticTag).isEmpty());
+    ASSERT_TRUE(service.save(noneTag).isEmpty());
+    ASSERT_TRUE(service.save(invalidRegexTag).isEmpty());
+    ASSERT_TRUE(service.save(broadTag).isEmpty());
+    ASSERT_TRUE(service.save(specificTag).isEmpty());
+    ASSERT_TRUE(service.reorderTags({QStringLiteral("SEMANTIC"), QStringLiteral("NONE"),
+                                     QStringLiteral("INVALID"), QStringLiteral("SPECIFIC"),
+                                     QStringLiteral("BROAD"), QStringLiteral("TEXT"),
+                                     QStringLiteral("LINK")}));
+
+    const QString content = QStringLiteral("Read https://example.com/docs today");
+    EXPECT_EQ(service.matchTag(content).tagName, QStringLiteral("SPECIFIC"));
+
+    ASSERT_TRUE(service.reorderTags({QStringLiteral("BROAD"), QStringLiteral("SPECIFIC"),
+                                     QStringLiteral("SEMANTIC"), QStringLiteral("NONE"),
+                                     QStringLiteral("INVALID"), QStringLiteral("TEXT"),
+                                     QStringLiteral("LINK")}));
+    EXPECT_EQ(service.matchTag(content).tagName, QStringLiteral("BROAD"));
+
+    EXPECT_EQ(service.matchTag(QStringLiteral("plain text")).tagName, QStringLiteral("TEXT"));
+    EXPECT_EQ(service.matchTag(QStringLiteral("https://openai.com")).tagName,
+              QStringLiteral("LINK"));
+}
+
+TEST(SQLServiceTest, SavingDuplicateContentUpdatesItsMatchedTag) {
+    QTemporaryDir tempDir;
+    ASSERT_TRUE(tempDir.isValid());
+    SQLService service(QDir(tempDir.filePath(QStringLiteral("db"))));
+
+    const QString content = QStringLiteral("same text");
+    const QDateTime firstTime = QDateTime::fromSecsSinceEpoch(100);
+    const QDateTime secondTime = QDateTime::fromSecsSinceEpoch(200);
+    const Tag textTag = service.matchTag(content);
+    ASSERT_TRUE(
+        service.save(ContentListItemData{textTag, content, firstTime, firstTime}).isEmpty());
+
+    const Tag matchedTag{QStringLiteral("MATCHED"), QStringLiteral("^same text$"),
+                         SearchMode::Regex};
+    ASSERT_TRUE(service.save(matchedTag).isEmpty());
+    ASSERT_TRUE(service.reorderTags(
+        {QStringLiteral("MATCHED"), QStringLiteral("TEXT"), QStringLiteral("LINK")}));
+
+    const Tag rematchedTag = service.matchTag(content);
+    ASSERT_EQ(rematchedTag.tagName, QStringLiteral("MATCHED"));
+    ASSERT_TRUE(
+        service.save(ContentListItemData{rematchedTag, content, secondTime, secondTime}).isEmpty());
+
+    const QVector<ContentListItemData> items = service.get();
+    ASSERT_EQ(items.size(), 1);
+    EXPECT_EQ(items.front().tag.tagName, QStringLiteral("MATCHED"));
+    EXPECT_EQ(items.front().copyTime, firstTime);
+    EXPECT_EQ(items.front().updateTime, secondTime);
+}
+
 TEST(SQLServiceTest, TagCrudPersistsAcrossReload) {
     QTemporaryDir tempDir;
     ASSERT_TRUE(tempDir.isValid());

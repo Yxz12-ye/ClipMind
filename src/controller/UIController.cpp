@@ -28,8 +28,10 @@ void UIController::refreshCurrentView() {
 }
 
 void UIController::onCopyTrigged() {
-    ContentListItemData data(Tag{"TEXT", "", SearchMode::None}, listener->text(),
-                             QDateTime::currentDateTime(), QDateTime::currentDateTime());
+    const QString content = listener->text();
+    const Tag tag = sql->matchTag(content);
+    ContentListItemData data(tag, content, QDateTime::currentDateTime(),
+                             QDateTime::currentDateTime());
     sql->save(data);
     refreshCurrentView();
 }

@@ -130,6 +130,7 @@ public:
         modeInput->addItem(QStringLiteral("Semantics"), static_cast<int>(SearchMode::Semantics));
         modeInput->addItem(QStringLiteral("Regex"), static_cast<int>(SearchMode::Regex));
         modeInput->addItem(QStringLiteral("None"), static_cast<int>(SearchMode::None));
+        modeInput->setCurrentIndex(modeInput->findData(static_cast<int>(SearchMode::Regex)));
         layout->addWidget(modeInput);
 
         ruleLabel = new QLabel(QStringLiteral("匹配规则"), this);
@@ -250,11 +251,11 @@ private:
     void updateRuleHint() {
         const auto mode = static_cast<SearchMode>(modeInput->currentData().toInt());
         if (mode == SearchMode::Semantics) {
-            ruleLabel->setText(QStringLiteral("语义匹配规则"));
+            ruleLabel->setText(QStringLiteral("语义匹配规则（暂未启用）"));
         } else if (mode == SearchMode::Regex) {
             ruleLabel->setText(QStringLiteral("正则表达式"));
         } else {
-            ruleLabel->setText(QStringLiteral("规则（None 模式不使用）"));
+            ruleLabel->setText(QStringLiteral("规则（不参与匹配）"));
         }
     }
 };
@@ -333,8 +334,8 @@ void SettingsDialog::setupUI() {
     generalLayout->addWidget(behaviorSection);
     generalLayout->addStretch();
 
-    auto* tagPage = createPage(QStringLiteral("标签管理"),
-                               QStringLiteral("通过上下按钮调整标签栏显示顺序"), pages);
+    auto* tagPage =
+        createPage(QStringLiteral("标签管理"), QStringLiteral("标签显示与自动匹配顺序"), pages);
     auto* tagLayout = qobject_cast<QVBoxLayout*>(tagPage->layout());
     auto* tagToolbar = new QHBoxLayout;
     tagToolbar->setContentsMargins(0, 0, 0, 0);

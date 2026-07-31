@@ -355,6 +355,36 @@ QVector<Tag> SQLService::getTags() const {
     return tags;
 }
 
+Tag SQLService::matchTag(const QString& content) const {
+    Tag fallback(QStringLiteral("TEXT"), QString(), SearchMode::None, QColor("#FFFFFF"),
+                 QColor("#000000"), true);
+
+    const QVector<Tag> tags = getTags();
+    for (const Tag& tag : tags) {
+        if (tag.tagName == QLatin1String("TEXT")) {
+            fallback = tag;
+            continue;
+        }
+
+        // Semantics 暂不实现, None 不参与自动匹配。
+        if (tag.mode != SearchMode::Regex || tag.rule.isEmpty()) {
+            continue;
+        }
+
+        const QRegularExpression regex(tag.rule);
+        if (!regex.isValid()) {
+            qWarning() << "invalid tag regex:" << tag.tagName << regex.errorString();
+            continue;
+        }
+
+        if (regex.match(content).hasMatch()) {
+            return tag;
+        }
+    }
+
+    return fallback;
+}
+
 bool SQLService::updateTag(const QString& originalName, const Tag& tag) {
     if (!isReady()) {
         return false;
