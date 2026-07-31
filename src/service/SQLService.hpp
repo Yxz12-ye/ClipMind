@@ -96,6 +96,6 @@ public:
     QVector<Tag> getTags() const;                // 全部标签, 包含 TEXT/LINK 系统保留标签
     Tag matchTag(const QString& content) const;  // 返回首个匹配的 Regex 标签, 否则返回 TEXT
     bool updateTag(const QString& originalName, const Tag& tag);  // 重名时返回 false
-    bool deleteTag(const QString& tagName);
-    bool reorderTags(const QStringList& tagNames);  // 按给定顺序写入 0..n-1
+    bool deleteTag(const QString& tagName);                       // 删除前将关联内容重新归类为 TEXT
+    bool reorderTags(const QStringList& tagNames);                // 按给定顺序写入 0..n-1
 };

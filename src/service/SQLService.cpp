@@ -435,14 +435,39 @@ bool SQLService::deleteTag(const QString& tagName) {
         return false;
     }
 
+    const sqlite3_int64 textTagId = searchTag(QStringLiteral("TEXT"));
+    if (textTagId < 0 || !execute("BEGIN TRANSACTION;")) {
+        return false;
+    }
+
     sqlite3_stmt* stmt = nullptr;
-    const char* sql = "DELETE FROM Tag WHERE tagName = ? AND isSysTag = 0;";
-    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        qWarning() << "prepare deleteTag failed:" << lastError();
+    const char* reassignSql =
+        "UPDATE ContentItem SET tag_id = ? "
+        "WHERE tag_id = (SELECT id FROM Tag WHERE tagName = ? AND isSysTag = 0);";
+    if (sqlite3_prepare_v2(db, reassignSql, -1, &stmt, nullptr) != SQLITE_OK) {
+        qWarning() << "prepare reassign deleted tag failed:" << lastError();
+        execute("ROLLBACK;");
         return false;
     }
 
     const QByteArray tagNameUtf8 = tagName.toUtf8();
+    sqlite3_bind_int64(stmt, 1, textTagId);
+    sqlite3_bind_text(stmt, 2, tagNameUtf8.constData(), -1, SQLITE_TRANSIENT);
+    if (sqlite3_step(stmt) != SQLITE_DONE) {
+        qWarning() << "reassign deleted tag failed:" << lastError();
+        sqlite3_finalize(stmt);
+        execute("ROLLBACK;");
+        return false;
+    }
+    sqlite3_finalize(stmt);
+
+    const char* deleteSql = "DELETE FROM Tag WHERE tagName = ? AND isSysTag = 0;";
+    if (sqlite3_prepare_v2(db, deleteSql, -1, &stmt, nullptr) != SQLITE_OK) {
+        qWarning() << "prepare deleteTag failed:" << lastError();
+        execute("ROLLBACK;");
+        return false;
+    }
+
     sqlite3_bind_text(stmt, 1, tagNameUtf8.constData(), -1, SQLITE_TRANSIENT);
     const int stepRc = sqlite3_step(stmt);
     const bool ok = stepRc == SQLITE_DONE && sqlite3_changes(db) == 1;
@@ -451,7 +476,16 @@ bool SQLService::deleteTag(const QString& tagName) {
     }
 
     sqlite3_finalize(stmt);
-    return ok;
+    if (!ok) {
+        execute("ROLLBACK;");
+        return false;
+    }
+
+    if (!execute("COMMIT;")) {
+        execute("ROLLBACK;");
+        return false;
+    }
+    return true;
 }
 
 bool SQLService::reorderTags(const QStringList& tagNames) {

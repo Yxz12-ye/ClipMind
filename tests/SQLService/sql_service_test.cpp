@@ -199,23 +199,37 @@ TEST(SQLServiceTest, ExistingDatabasePromotesTextAndAddsMissingLinkSystemTag) {
         Tag{QStringLiteral("URL"), QString(), SearchMode::None, QColor(), QColor()}));
 }
 
-TEST(SQLServiceTest, DeletingTagClearsContentTagReference) {
+TEST(SQLServiceTest, DeletingTagReassignsAffectedContentToText) {
     QTemporaryDir tempDir;
     ASSERT_TRUE(tempDir.isValid());
     SQLService service(QDir(tempDir.filePath(QStringLiteral("db"))));
 
     const QDateTime time = QDateTime::fromSecsSinceEpoch(100);
     const Tag imageTag{QStringLiteral("图片"), QString(), SearchMode::None};
+    const Tag documentTag{QStringLiteral("文档"), QString(), SearchMode::None};
     ASSERT_TRUE(
-        service.save(ContentListItemData{imageTag, QStringLiteral("image content"), time, time})
+        service.save(ContentListItemData{imageTag, QStringLiteral("first image"), time, time})
+            .isEmpty());
+    ASSERT_TRUE(
+        service.save(ContentListItemData{imageTag, QStringLiteral("second image"), time, time})
+            .isEmpty());
+    ASSERT_TRUE(
+        service.save(ContentListItemData{documentTag, QStringLiteral("document"), time, time})
             .isEmpty());
 
     ASSERT_TRUE(service.deleteTag(QStringLiteral("图片")));
 
     const QVector<ContentListItemData> items = service.get();
-    ASSERT_EQ(items.size(), 1);
-    EXPECT_EQ(items.front().content, QStringLiteral("image content"));
-    EXPECT_TRUE(items.front().tag.tagName.isEmpty());  // 删除标签后关联内容的外键被置空
+    ASSERT_EQ(items.size(), 3);
+    for (const ContentListItemData& item : items) {
+        if (item.content == QLatin1String("document")) {
+            EXPECT_EQ(item.tag.tagName, QStringLiteral("文档"));
+            EXPECT_FALSE(item.tag.isSysTag);
+        } else {
+            EXPECT_EQ(item.tag.tagName, QStringLiteral("TEXT"));
+            EXPECT_TRUE(item.tag.isSysTag);
+        }
+    }
 }
 
 int main(int argc, char** argv) {
