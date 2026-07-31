@@ -31,6 +31,7 @@ signals:
 protected:
     void enterEvent(QEnterEvent* event) override;
     void leaveEvent(QEvent* event) override;
+    void changeEvent(QEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void resizeEvent(QResizeEvent* event) override;
 
@@ -47,7 +48,9 @@ private:
     QColor m_badgeForeground;
     bool m_pinned = false;
     bool m_hovered = false;
+    bool m_updatingTheme = false;
 
+    void applyTheme();
     void refreshBodyText();
     void updateBadgeStyle() const;
     void updateShadowEffect();

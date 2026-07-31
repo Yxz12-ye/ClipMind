@@ -107,12 +107,7 @@ ContentListItemWidget::ContentListItemWidget(QWidget* parent)
     setAttribute(Qt::WA_StyledBackground, true);
     setObjectName("contentListItem");
     setCursor(Qt::PointingHandCursor);
-    setStyleSheet(
-        "#contentListItem {"
-        "background-color: #FFFFFF;"
-        "border: 1px solid #E2E8F0;"
-        "border-radius: 10px;"
-        "}");
+    applyTheme();
     setGraphicsEffect(m_shadowEffect);
     updateShadowEffect();
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -121,8 +116,6 @@ ContentListItemWidget::ContentListItemWidget(QWidget* parent)
 }
 
 void ContentListItemWidget::setItemData(const ContentListItemData& data) {
-    QColor bodyColor("#1E293B");
-
     m_badgeBackground = data.tag.tagBackColor;
     m_badgeForeground = data.tag.tagNameColor;
 
@@ -133,7 +126,6 @@ void ContentListItemWidget::setItemData(const ContentListItemData& data) {
     updateTime();
     m_bodyText = data.content;
     refreshBodyText();
-    m_bodyLabel->setStyleSheet(QString("color: %1;").arg(bodyColor.name()));
     updateBadgeStyle();
     m_pinned = data.pinned;
     updateShadowEffect();
@@ -149,6 +141,21 @@ void ContentListItemWidget::leaveEvent(QEvent* event) {
     QWidget::leaveEvent(event);
     m_hovered = false;
     updateShadowEffect();
+}
+
+void ContentListItemWidget::changeEvent(QEvent* event) {
+    if (m_updatingTheme && (event->type() == QEvent::PaletteChange ||
+                            event->type() == QEvent::ApplicationPaletteChange)) {
+        return;
+    }
+    if (event->type() == QEvent::PaletteChange ||
+        event->type() == QEvent::ApplicationPaletteChange) {
+        m_updatingTheme = true;
+        applyTheme();
+        m_updatingTheme = false;
+    }
+
+    QWidget::changeEvent(event);
 }
 
 void ContentListItemWidget::mouseReleaseEvent(QMouseEvent* event) {
@@ -181,12 +188,30 @@ void ContentListItemWidget::updateBadgeStyle() const {
     m_badgeLabel->setStyleSheet(QString("color: %1;").arg(m_badgeForeground.name()));
 }
 
+void ContentListItemWidget::applyTheme() {
+    const bool darkMode = palette().color(QPalette::Window).lightness() < 128;
+    const QString background = darkMode ? "#252525" : "#FFFFFF";
+    const QString border = darkMode ? "#383838" : "#E2E8F0";
+    const QString bodyColor = darkMode ? "#F1F5F9" : "#1E293B";
+
+    setStyleSheet(QString("#contentListItem {"
+                          "background-color: %1;"
+                          "border: 1px solid %2;"
+                          "border-radius: 10px;"
+                          "}")
+                      .arg(background, border));
+    m_timeLabel->setStyleSheet("color: #94A3B8;");
+    m_bodyLabel->setStyleSheet(QString("color: %1;").arg(bodyColor));
+}
+
 void ContentListItemWidget::updateShadowEffect() {
+    const bool darkMode = palette().color(QPalette::Window).lightness() < 128;
+
     if (m_hovered) {
         m_shadowEffect->setEnabled(true);
         m_shadowEffect->setBlurRadius(12.0);
         m_shadowEffect->setOffset(0.0, 3.0);
-        m_shadowEffect->setColor(QColor(15, 23, 42, 48));
+        m_shadowEffect->setColor(darkMode ? QColor(0, 0, 0, 96) : QColor(15, 23, 42, 48));
         return;
     }
 
@@ -194,7 +219,7 @@ void ContentListItemWidget::updateShadowEffect() {
         m_shadowEffect->setEnabled(true);
         m_shadowEffect->setBlurRadius(8.0);
         m_shadowEffect->setOffset(0.0, 2.0);
-        m_shadowEffect->setColor(QColor(0, 0, 0, 16));
+        m_shadowEffect->setColor(darkMode ? QColor(0, 0, 0, 48) : QColor(0, 0, 0, 16));
         return;
     }
 
