@@ -122,6 +122,10 @@ void MainWindow::setupTray() {
     trayIcon.setToolTip(hotkeyLabel.isEmpty() ? QStringLiteral("ClipMind")
                                               : QStringLiteral("ClipMind (%1)").arg(hotkeyLabel));
 
+    QAction* settingsAction = trayMenu.addAction(QStringLiteral("设置"));
+    connect(settingsAction, &QAction::triggered, this, &MainWindow::openSettings);
+
+    trayMenu.addSeparator();
     QAction* exitAction = trayMenu.addAction(QStringLiteral("退出"));
     connect(exitAction, &QAction::triggered, this, &MainWindow::exitFromTray);
     connect(&trayIcon, &QSystemTrayIcon::activated, this,
