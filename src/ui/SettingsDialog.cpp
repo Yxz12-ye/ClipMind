@@ -14,6 +14,8 @@
 #include <QPalette>
 #include <QPushButton>
 #include <QStackedWidget>
+#include <QStyle>
+#include <QStyledItemDelegate>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -81,6 +83,23 @@ QString modeName(SearchMode mode) {
 
     return QString();
 }
+
+class TagManagerDelegate : public QStyledItemDelegate {
+public:
+    explicit TagManagerDelegate(QObject* parent = nullptr) : QStyledItemDelegate(parent) {}
+
+protected:
+    void initStyleOption(QStyleOptionViewItem* option, const QModelIndex& index) const override {
+        QStyledItemDelegate::initStyleOption(option, index);
+        if (option->state & QStyle::State_Selected) {
+            const QVariant foreground = index.data(Qt::ForegroundRole);
+            if (foreground.canConvert<QBrush>()) {
+                option->palette.setBrush(QPalette::HighlightedText,
+                                         qvariant_cast<QBrush>(foreground));
+            }
+        }
+    }
+};
 
 class TagEditorDialog : public QDialog {
 public:
@@ -327,6 +346,7 @@ void SettingsDialog::setupUI() {
 
     tagList = new QListWidget(tagPage);
     tagList->setObjectName("tagManagerList");
+    tagList->setItemDelegate(new TagManagerDelegate(tagList));
     tagList->setFrameShape(QFrame::NoFrame);
     tagList->setSelectionMode(QAbstractItemView::SingleSelection);
     tagList->setDragDropMode(QAbstractItemView::NoDragDrop);
