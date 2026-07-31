@@ -11,6 +11,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMessageBox>
 #include <QPalette>
 #include <QPushButton>
 #include <QStackedWidget>
@@ -20,6 +21,7 @@
 #include <QVBoxLayout>
 
 #include "CustomHead.hpp"
+#include "service/SQLService.hpp"
 #include "struct.hpp"
 
 namespace {
@@ -103,8 +105,10 @@ protected:
 
 class TagEditorDialog : public QDialog {
 public:
-    explicit TagEditorDialog(QWidget* parent = nullptr) : QDialog(parent) {
-        setWindowTitle(QStringLiteral("添加标签"));
+    explicit TagEditorDialog(QWidget* parent = nullptr) : TagEditorDialog(Tag(), parent) {}
+    explicit TagEditorDialog(const Tag& tag, QWidget* parent = nullptr) : QDialog(parent) {
+        setWindowTitle(tag.tagName.isEmpty() ? QStringLiteral("添加标签")
+                                             : QStringLiteral("编辑标签"));
         setModal(true);
         setFixedSize(440, 350);
 
@@ -128,7 +132,7 @@ public:
         modeInput->addItem(QStringLiteral("None"), static_cast<int>(SearchMode::None));
         layout->addWidget(modeInput);
 
-        ruleLabel = new QLabel(QStringLiteral("规则（用于语义或正则匹配）"), this);
+        ruleLabel = new QLabel(QStringLiteral("匹配规则"), this);
         layout->addWidget(ruleLabel);
         ruleInput = new QLineEdit(this);
         ruleInput->setPlaceholderText(QStringLiteral("例如：网页链接 或 https?://\\S+"));
@@ -154,10 +158,22 @@ public:
         layout->addLayout(colorLayout);
 
         auto* buttons = new QDialogButtonBox(QDialogButtonBox::Cancel | QDialogButtonBox::Ok, this);
-        buttons->button(QDialogButtonBox::Ok)->setText(QStringLiteral("添加"));
+        buttons->button(QDialogButtonBox::Ok)
+            ->setText(tag.tagName.isEmpty() ? QStringLiteral("添加") : QStringLiteral("保存"));
         buttons->button(QDialogButtonBox::Cancel)->setText(QStringLiteral("取消"));
-        buttons->button(QDialogButtonBox::Ok)->setEnabled(false);
+        buttons->button(QDialogButtonBox::Ok)->setEnabled(!tag.tagName.isEmpty());
         layout->addWidget(buttons);
+
+        if (!tag.tagName.isEmpty()) {
+            nameInput->setText(tag.tagName);
+            const int modeIndex = modeInput->findData(static_cast<int>(tag.mode));
+            if (modeIndex >= 0) {
+                modeInput->setCurrentIndex(modeIndex);
+            }
+            ruleInput->setText(tag.rule);
+            foregroundColor = tag.tagNameColor;
+            backgroundColor = tag.tagBackColor;
+        }
 
         updateColorButton(foregroundButton, foregroundColor);
         updateColorButton(backgroundButton, backgroundColor);
@@ -234,11 +250,11 @@ private:
     void updateRuleHint() {
         const auto mode = static_cast<SearchMode>(modeInput->currentData().toInt());
         if (mode == SearchMode::Semantics) {
-            ruleLabel->setText(QStringLiteral("语义规则（用于自动语义匹配）"));
+            ruleLabel->setText(QStringLiteral("语义匹配规则"));
         } else if (mode == SearchMode::Regex) {
-            ruleLabel->setText(QStringLiteral("正则表达式（用于自动正则匹配）"));
+            ruleLabel->setText(QStringLiteral("正则表达式"));
         } else {
-            ruleLabel->setText(QStringLiteral("规则（None 暂不参与自动匹配）"));
+            ruleLabel->setText(QStringLiteral("规则（None 模式不使用）"));
         }
     }
 };
@@ -254,8 +270,9 @@ enum TagDataRole {
 
 }  // namespace
 
-SettingsDialog::SettingsDialog(bool hideAfterPaste, bool showTrayIcon, QWidget* parent)
-    : QDialog(parent), autoHide(nullptr), showInTray(nullptr) {
+SettingsDialog::SettingsDialog(SQLService* service, bool hideAfterPaste, bool showTrayIcon,
+                               QWidget* parent)
+    : QDialog(parent), service(service), autoHide(nullptr), showInTray(nullptr) {
     setWindowFlag(Qt::FramelessWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
     setModal(true);
@@ -316,28 +333,27 @@ void SettingsDialog::setupUI() {
     generalLayout->addWidget(behaviorSection);
     generalLayout->addStretch();
 
-    auto* tagPage =
-        createPage(QStringLiteral("标签管理"),
-                   QStringLiteral("通过上下按钮调整自动匹配优先级，越靠上优先级越高"), pages);
+    auto* tagPage = createPage(QStringLiteral("标签管理"),
+                               QStringLiteral("通过上下按钮调整标签栏显示顺序"), pages);
     auto* tagLayout = qobject_cast<QVBoxLayout*>(tagPage->layout());
     auto* tagToolbar = new QHBoxLayout;
     tagToolbar->setContentsMargins(0, 0, 0, 0);
-    auto* priorityHint = createLabel(QStringLiteral("单条内容仅应用优先级最高的一个自动匹配标签"),
-                                     "settingsItemDescription", tagPage);
+    auto* systemTagHint = createLabel(QStringLiteral("系统保留标签不可编辑或删除"),
+                                      "settingsItemDescription", tagPage);
     auto* addTagButton = new QPushButton(QStringLiteral("+ 添加标签"), tagPage);
     addTagButton->setObjectName("addTagButton");
     auto* moveUpButton = new QToolButton(tagPage);
     moveUpButton->setObjectName("tagToolbarButton");
     moveUpButton->setArrowType(Qt::UpArrow);
-    moveUpButton->setToolTip(QStringLiteral("上移标签，提高优先级"));
+    moveUpButton->setToolTip(QStringLiteral("上移标签"));
     auto* moveDownButton = new QToolButton(tagPage);
     moveDownButton->setObjectName("tagToolbarButton");
     moveDownButton->setArrowType(Qt::DownArrow);
-    moveDownButton->setToolTip(QStringLiteral("下移标签，降低优先级"));
+    moveDownButton->setToolTip(QStringLiteral("下移标签"));
     auto* deleteTagButton = new QPushButton(QStringLiteral("删除"), tagPage);
     deleteTagButton->setObjectName("deleteTagButton");
     deleteTagButton->setEnabled(false);
-    tagToolbar->addWidget(priorityHint, 1);
+    tagToolbar->addWidget(systemTagHint, 1);
     tagToolbar->addWidget(addTagButton);
     tagToolbar->addWidget(moveUpButton);
     tagToolbar->addWidget(moveDownButton);
@@ -353,8 +369,10 @@ void SettingsDialog::setupUI() {
     tagList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
     tagLayout->addWidget(tagList, 1);
 
-    addTagItem(Tag(QStringLiteral("LINK"), QStringLiteral("https?://\\S+"), SearchMode::Regex,
-                   QColor("#DBEAFE"), QColor("#1D4ED8"), true));
+    const QVector<Tag> savedTags = service->getTags();
+    for (const Tag& tag : savedTags) {
+        addTagItem(tag);
+    }
 
     auto* shortcutPage =
         createPage(QStringLiteral("快捷键"), QStringLiteral("快速呼出 ClipMind"), pages);
@@ -412,6 +430,8 @@ void SettingsDialog::setupUI() {
             [this] { moveTagItem(tagList->currentItem(), 1); });
     connect(deleteTagButton, &QPushButton::clicked, this,
             [this] { removeTagItem(tagList->currentItem()); });
+    connect(tagList, &QListWidget::itemDoubleClicked, this,
+            [this](QListWidgetItem* item) { editTag(item); });
     connect(tagList, &QListWidget::currentItemChanged, this,
             [deleteTagButton](QListWidgetItem* current, QListWidgetItem*) {
                 deleteTagButton->setEnabled(current != nullptr &&
@@ -425,11 +445,29 @@ void SettingsDialog::addTag() {
         return;
     }
 
-    addTagItem(dialog.tag());
+    const Tag tag = dialog.tag();
+    if (containsTag(tag.tagName)) {
+        QMessageBox::warning(this, QStringLiteral("添加标签"),
+                             QStringLiteral("已存在同名标签，请更换名称"));
+        return;
+    }
+
+    const QString error = service->save(tag);
+    if (!error.isEmpty()) {
+        QMessageBox::warning(this, QStringLiteral("添加标签"), error);
+        return;
+    }
+
+    addTagItem(tag);
 }
 
 void SettingsDialog::addTagItem(const Tag& tag) {
     auto* item = new QListWidgetItem(tagList);
+    updateTagItem(item, tag);
+    tagList->setCurrentItem(item);
+}
+
+void SettingsDialog::updateTagItem(QListWidgetItem* item, const Tag& tag) {
     item->setData(TagNameRole, tag.tagName);
     item->setData(TagRuleRole, tag.rule);
     item->setData(TagModeRole, static_cast<int>(tag.mode));
@@ -443,11 +481,60 @@ void SettingsDialog::addTagItem(const Tag& tag) {
     item->setForeground(QBrush(tag.tagNameColor));
     item->setBackground(QBrush(tag.tagBackColor));
     item->setSizeHint(QSize(0, 34));
-    tagList->setCurrentItem(item);
+}
+
+void SettingsDialog::editTag(QListWidgetItem* item) {
+    if (item == nullptr || item->data(TagSystemRole).toBool()) {
+        return;
+    }
+
+    const Tag original = tagFromItem(item);
+    TagEditorDialog dialog(original, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    const Tag updated = dialog.tag();
+    if (updated.tagName != original.tagName && containsTag(updated.tagName)) {
+        QMessageBox::warning(this, QStringLiteral("编辑标签"),
+                             QStringLiteral("已存在同名标签，请更换名称"));
+        return;
+    }
+
+    if (!service->updateTag(original.tagName, updated)) {
+        QMessageBox::warning(this, QStringLiteral("编辑标签"),
+                             QStringLiteral("保存失败，请稍后重试"));
+        return;
+    }
+
+    updateTagItem(item, updated);
+}
+
+Tag SettingsDialog::tagFromItem(QListWidgetItem* item) const {
+    return Tag(item->data(TagNameRole).toString(), item->data(TagRuleRole).toString(),
+               static_cast<SearchMode>(item->data(TagModeRole).toInt()),
+               item->data(TagBackgroundRole).value<QColor>(),
+               item->data(TagForegroundRole).value<QColor>(), item->data(TagSystemRole).toBool());
+}
+
+bool SettingsDialog::containsTag(const QString& name) const {
+    for (int i = 0; i < tagList->count(); ++i) {
+        if (tagList->item(i)->data(TagNameRole).toString() == name) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void SettingsDialog::removeTagItem(QListWidgetItem* item) {
     if (item == nullptr || item->data(TagSystemRole).toBool()) {
+        return;
+    }
+
+    const QString tagName = item->data(TagNameRole).toString();
+    if (!service->deleteTag(tagName)) {
+        QMessageBox::warning(this, QStringLiteral("删除标签"),
+                             QStringLiteral("删除失败，请稍后重试"));
         return;
     }
 
@@ -468,6 +555,18 @@ void SettingsDialog::moveTagItem(QListWidgetItem* item, int offset) {
     QListWidgetItem* movedItem = tagList->takeItem(currentRow);
     tagList->insertItem(targetRow, movedItem);
     tagList->setCurrentItem(movedItem);
+
+    QStringList orderedNames;
+    for (int i = 0; i < tagList->count(); ++i) {
+        orderedNames.append(tagList->item(i)->data(TagNameRole).toString());
+    }
+    if (!service->reorderTags(orderedNames)) {
+        QListWidgetItem* rollbackItem = tagList->takeItem(tagList->row(movedItem));
+        tagList->insertItem(currentRow, rollbackItem);
+        tagList->setCurrentItem(rollbackItem);
+        QMessageBox::warning(this, QStringLiteral("排序标签"),
+                             QStringLiteral("排序保存失败，已恢复原顺序"));
+    }
 }
 
 bool SettingsDialog::hideAfterPasteEnabled() const {

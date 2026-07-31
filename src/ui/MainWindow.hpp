@@ -43,6 +43,7 @@ private:
 
     void setupUI();
     void applyTheme();
+    void refreshTagBar();
     void setupTray();
     void setupGlobalHotkey();
     void teardownGlobalHotkey();

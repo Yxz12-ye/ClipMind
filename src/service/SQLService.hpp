@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 #include "../struct.hpp"
@@ -11,16 +12,17 @@
 
 #define DATABASE_DIR "/AppData/Local/ClipMind"
 #define DATABASE_NAME "Clipboard.db"
-#define TABLE_TAG                                        \
-    "-- 创建 Tag 表\n"                                   \
-    "CREATE TABLE IF NOT EXISTS Tag (\n"                 \
-    "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n"        \
-    "    tagName TEXT NOT NULL,\n"                       \
-    "    rule TEXT,\n"                                   \
-    "    tagNameColor TEXT,      -- 存储为字符串\n"      \
-    "    tagBackColor TEXT,\n"                           \
-    "    isSysTag INTEGER,       -- 0 或 1\n"            \
-    "    mode INTEGER            -- SearchMode 枚举值\n" \
+#define TABLE_TAG                                              \
+    "-- 创建 Tag 表\n"                                         \
+    "CREATE TABLE IF NOT EXISTS Tag (\n"                       \
+    "    id INTEGER PRIMARY KEY AUTOINCREMENT,\n"              \
+    "    tagName TEXT NOT NULL,\n"                             \
+    "    rule TEXT,\n"                                         \
+    "    tagNameColor TEXT,      -- 存储为字符串\n"            \
+    "    tagBackColor TEXT,\n"                                 \
+    "    isSysTag INTEGER,       -- 0 或 1\n"                  \
+    "    mode INTEGER,           -- SearchMode 枚举值\n"       \
+    "    priority INTEGER DEFAULT 0 -- 显示顺序, 越小越靠前\n" \
     ");"
 #define TABLE_CONTENT                                                               \
     "-- 创建 ContentItem 表\n"                                                      \
@@ -46,14 +48,16 @@ private:
 
     bool clear(QDateTime time);  // 把time以前的条目删除(数据库中对应的字段是updateTime)
     sqlite3_int64 searchTag(const QString& tagName);
+    void ensurePriorityColumn();  // 旧库迁移: 补充 priority 列
+    void ensureSystemTags();      // 补齐 TEXT/LINK 系统保留标签
     QDir databaseDir;
 
     sqlite3* db = nullptr;
 
     sqlite3_stmt* tagStmt = nullptr;
     const char* tagSQL =
-        "INSERT INTO Tag (tagName, rule, tagNameColor, tagBackColor, isSysTag, mode) VALUES (?, ?, "
-        "?, ?, ?, ?);";
+        "INSERT INTO Tag (tagName, rule, tagNameColor, tagBackColor, isSysTag, mode, priority) "
+        "VALUES (?, ?, ?, ?, ?, ?, (SELECT COALESCE(MAX(priority), -1) + 1 FROM Tag));";
     sqlite3_stmt* contentStmt = nullptr;
     const char* contentSQL =
         "INSERT INTO ContentItem (tag_id, content, copyTime, updateTime, hash, pinned) "
@@ -87,4 +91,10 @@ public:
     bool updateContentTime(const QString& content);
     bool deleteItem(QByteArray hash);    // 后面再添加其他删除(比如正则表达式删除等)
     QVector<ContentListItemData> get();  // 根据updateTime倒序读取前MAX_ITEM个对象
+
+    // 标签管理: 增删改查与显示排序
+    QVector<Tag> getTags() const;  // 全部标签, 包含 TEXT/LINK 系统保留标签
+    bool updateTag(const QString& originalName, const Tag& tag);  // 重名时返回 false
+    bool deleteTag(const QString& tagName);
+    bool reorderTags(const QStringList& tagNames);  // 按给定顺序写入 0..n-1
 };

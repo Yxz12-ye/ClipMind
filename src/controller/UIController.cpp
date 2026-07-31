@@ -14,6 +14,10 @@ QVector<ContentListItemData> UIController::getCopyDate() {
     return sql->get();
 }
 
+QVector<Tag> UIController::getTags() const {
+    return sql->getTags();
+}
+
 void UIController::refreshCurrentView() {
     if (currentSearchText.trimmed().isEmpty()) {
         emit updateUI(sql->get());

@@ -2,6 +2,7 @@
 
 #include <QDebug>
 #include <QRegularExpression>
+#include <utility>
 
 namespace {
 
@@ -180,6 +181,53 @@ sqlite3_int64 SQLService::searchTag(const QString& tagName) {
     return tagId;
 }
 
+void SQLService::ensurePriorityColumn() {
+    sqlite3_stmt* stmt = nullptr;
+    if (sqlite3_prepare_v2(db, "PRAGMA table_info(Tag);", -1, &stmt, nullptr) != SQLITE_OK) {
+        qWarning() << "prepare table_info failed:" << lastError();
+        return;
+    }
+
+    bool hasPriority = false;
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const auto* columnName = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        if (columnName != nullptr && QString::fromUtf8(columnName) == QLatin1String("priority")) {
+            hasPriority = true;
+            break;
+        }
+    }
+    sqlite3_finalize(stmt);
+
+    if (!hasPriority && !execute("ALTER TABLE Tag ADD COLUMN priority INTEGER DEFAULT 0;")) {
+        qWarning() << "添加 priority 列失败";
+    }
+}
+
+void SQLService::ensureSystemTags() {
+    if (!isReady() || tagStmt == nullptr) {
+        return;
+    }
+
+    const QVector<Tag> systemTags = {
+        Tag(QStringLiteral("TEXT"), QString(), SearchMode::None, QColor("#FFFFFF"),
+            QColor("#000000"), true),
+        Tag(QStringLiteral("LINK"), QStringLiteral("https?://\\S+"), SearchMode::Regex,
+            QColor("#DBEAFE"), QColor("#1D4ED8"), true),
+    };
+
+    for (const Tag& tag : systemTags) {
+        const QString error = save(tag);
+        if (!error.isEmpty()) {
+            qWarning() << "ensure system tag failed:" << tag.tagName << error;
+        }
+    }
+
+    // 旧版在首次复制时会隐式创建非系统 TEXT 标签, 升级后需将其标记为保留标签。
+    if (!execute("UPDATE Tag SET isSysTag = 1 WHERE tagName IN ('TEXT', 'LINK');")) {
+        qWarning() << "mark system tags failed";
+    }
+}
+
 SQLService::SQLService(QObject* parent)
     : SQLService(QDir(QDir::homePath() + DATABASE_DIR), parent) {}
 
@@ -208,6 +256,9 @@ SQLService::SQLService(const QDir& databaseDirectory, QObject* parent)
         return;
     }
 
+    ensurePriorityColumn();                // 兼容旧数据库(缺少 priority 列)
+    execute("PRAGMA foreign_keys = ON;");  // 删除标签时自动将关联内容的 tag_id 置空
+
     if (sqlite3_prepare_v2(db, tagSQL, -1, &tagStmt, nullptr) != SQLITE_OK ||
         sqlite3_prepare_v2(db, contentSQL, -1, &contentStmt, nullptr) != SQLITE_OK ||
         sqlite3_prepare_v2(db, sqlSearchTag, -1, &searchTagStmt, nullptr) != SQLITE_OK) {
@@ -220,7 +271,10 @@ SQLService::SQLService(const QDir& databaseDirectory, QObject* parent)
         searchTagStmt = nullptr;
         sqlite3_close(db);
         db = nullptr;
+        return;
     }
+
+    ensureSystemTags();
 }
 
 SQLService::~SQLService() {
@@ -267,6 +321,150 @@ QString SQLService::save(const Tag& tag) {
 
     resetStatement(tagStmt);
     return {};
+}
+
+QVector<Tag> SQLService::getTags() const {
+    QVector<Tag> tags;
+    if (!isReady()) {
+        return tags;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql =
+        "SELECT tagName, rule, tagNameColor, tagBackColor, isSysTag, mode, priority "
+        "FROM Tag ORDER BY priority ASC, id ASC;";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        qWarning() << "prepare getTags failed:" << lastError();
+        return tags;
+    }
+
+    while (sqlite3_step(stmt) == SQLITE_ROW) {
+        const auto* name = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
+        const auto* rule = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 1));
+        Tag tag(name != nullptr ? QString::fromUtf8(name) : QString(),
+                rule != nullptr ? QString::fromUtf8(rule) : QString(),
+                static_cast<SearchMode>(sqlite3_column_int(stmt, 5)),
+                colorFromColumn(stmt, 3, QColor(255, 255, 255)),
+                colorFromColumn(stmt, 2, QColor(0, 0, 0)), sqlite3_column_int(stmt, 4) != 0,
+                sqlite3_column_int(stmt, 6));
+
+        tags.push_back(std::move(tag));
+    }
+
+    sqlite3_finalize(stmt);
+    return tags;
+}
+
+bool SQLService::updateTag(const QString& originalName, const Tag& tag) {
+    if (!isReady()) {
+        return false;
+    }
+
+    if (tag.tagName != originalName) {
+        const sqlite3_int64 existingId = searchTag(tag.tagName);
+        if (existingId != -1) {
+            return false;  // 重名或查询失败
+        }
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql =
+        "UPDATE Tag SET tagName = ?, rule = ?, tagNameColor = ?, tagBackColor = ?, isSysTag = ?, "
+        "mode = ? WHERE tagName = ? AND isSysTag = 0;";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        qWarning() << "prepare updateTag failed:" << lastError();
+        return false;
+    }
+
+    const QByteArray nameUtf8 = tag.tagName.toUtf8();
+    const QByteArray ruleUtf8 = tag.rule.toUtf8();
+    const QByteArray nameColorUtf8 = colorToString(tag.tagNameColor).toUtf8();
+    const QByteArray backColorUtf8 = colorToString(tag.tagBackColor).toUtf8();
+    const QByteArray originalNameUtf8 = originalName.toUtf8();
+
+    sqlite3_bind_text(stmt, 1, nameUtf8.constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 2, ruleUtf8.constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, nameColorUtf8.constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, backColorUtf8.constData(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 5, tag.isSysTag ? 1 : 0);
+    sqlite3_bind_int(stmt, 6, static_cast<int>(tag.mode));
+    sqlite3_bind_text(stmt, 7, originalNameUtf8.constData(), -1, SQLITE_TRANSIENT);
+
+    const int stepRc = sqlite3_step(stmt);
+    const bool ok = stepRc == SQLITE_DONE && sqlite3_changes(db) == 1;
+    if (stepRc != SQLITE_DONE) {
+        qWarning() << "updateTag failed:" << lastError();
+    }
+
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
+bool SQLService::deleteTag(const QString& tagName) {
+    if (!isReady()) {
+        return false;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "DELETE FROM Tag WHERE tagName = ? AND isSysTag = 0;";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        qWarning() << "prepare deleteTag failed:" << lastError();
+        return false;
+    }
+
+    const QByteArray tagNameUtf8 = tagName.toUtf8();
+    sqlite3_bind_text(stmt, 1, tagNameUtf8.constData(), -1, SQLITE_TRANSIENT);
+    const int stepRc = sqlite3_step(stmt);
+    const bool ok = stepRc == SQLITE_DONE && sqlite3_changes(db) == 1;
+    if (stepRc != SQLITE_DONE) {
+        qWarning() << "deleteTag failed:" << lastError();
+    }
+
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
+bool SQLService::reorderTags(const QStringList& tagNames) {
+    if (!isReady()) {
+        return false;
+    }
+
+    if (!execute("BEGIN TRANSACTION;")) {
+        return false;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "UPDATE Tag SET priority = ? WHERE tagName = ?;";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        qWarning() << "prepare reorderTags failed:" << lastError();
+        execute("ROLLBACK;");
+        return false;
+    }
+
+    bool ok = true;
+    for (int i = 0; i < tagNames.size(); ++i) {
+        resetStatement(stmt);
+        sqlite3_bind_int(stmt, 1, i);
+        const QByteArray nameUtf8 = tagNames.at(i).toUtf8();
+        sqlite3_bind_text(stmt, 2, nameUtf8.constData(), -1, SQLITE_TRANSIENT);
+        if (sqlite3_step(stmt) != SQLITE_DONE) {
+            qWarning() << "reorderTags step failed:" << lastError();
+            ok = false;
+            break;
+        }
+    }
+
+    sqlite3_finalize(stmt);
+    if (!ok) {
+        execute("ROLLBACK;");
+        return false;
+    }
+
+    if (!execute("COMMIT;")) {
+        execute("ROLLBACK;");
+        return false;
+    }
+    return true;
 }
 
 QString SQLService::save(const ContentListItemData& data) {

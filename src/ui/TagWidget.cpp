@@ -1,7 +1,8 @@
 #include "TagWidget.hpp"
 
-TagDelegate::TagDelegate(QObject* parent) : QStyledItemDelegate(parent)
-{}
+#include <QPalette>
+
+TagDelegate::TagDelegate(QObject* parent) : QStyledItemDelegate(parent) {}
 
 QSize TagDelegate::sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const {
     QString text = index.data(Qt::DisplayRole).toString();
@@ -13,8 +14,7 @@ QSize TagDelegate::sizeHint(const QStyleOptionViewItem& option, const QModelInde
 }
 
 void TagDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option,
-                        const QModelIndex& index) const 
-{
+                        const QModelIndex& index) const {
     painter->save();
     painter->setRenderHint(QPainter::Antialiasing);
 
@@ -28,9 +28,17 @@ void TagDelegate::paint(QPainter* painter, const QStyleOptionViewItem& option,
         bgColor = QColor("#3B82F6");
         textColor = Qt::white;
     } else {
-        bgColor = QColor("#FFFFFF");
-        textColor = QColor("#1E293B");
-        borderPen = QPen(QColor("#E2E8F0"));
+        const QColor tagBg = index.data(TagBarBackgroundRole).value<QColor>();
+        const QColor tagFg = index.data(TagBarForegroundRole).value<QColor>();
+        if (tagBg.isValid() && tagFg.isValid()) {
+            bgColor = tagBg;
+            textColor = tagFg;
+        } else {
+            const bool dark = option.palette.color(QPalette::Window).lightness() < 128;
+            bgColor = dark ? QColor("#252525") : QColor("#FFFFFF");
+            textColor = dark ? QColor("#F1F5F9") : QColor("#1E293B");
+            borderPen = QPen(dark ? QColor("#383838") : QColor("#E2E8F0"));
+        }
     }
 
     // 绘制圆角矩形背景
@@ -58,25 +66,24 @@ TagListView::TagListView(QWidget* parent) : QListView(parent) {
     setStyleSheet("QListView { outline: none; }");
     m_delegate = new TagDelegate(this);
     setItemDelegate(m_delegate);
-
 }
 
 void TagListView::setModel(QAbstractItemModel* model) {
-    if (this->model()){
+    if (this->model()) {
         disconnect(this->model(), nullptr, this, nullptr);
     }
     QListView::setModel(model);
-    if(model){
+    if (model) {
         connect(model, &QAbstractItemModel::dataChanged, this, &TagListView::adjustSizeToContent);
         connect(model, &QAbstractItemModel::rowsInserted, this, &TagListView::adjustSizeToContent);
         connect(model, &QAbstractItemModel::rowsRemoved, this, &TagListView::adjustSizeToContent);
         adjustSizeToContent();  // 初始调整
-        
     }
 }
 
-void TagListView::adjustSizeToContent(){
-    if (!model()) return;
+void TagListView::adjustSizeToContent() {
+    if (!model())
+        return;
     int totalWidth = 0;
     int maxHeight = 0;
     for (int row = 0; row < model()->rowCount(); ++row) {

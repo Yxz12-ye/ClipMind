@@ -1,32 +1,37 @@
 #pragma once
 
-#include <QWidget>
 #include <QListView>
-#include <QStyledItemDelegate>
-#include <QSize>
 #include <QPainter>
+#include <QSize>
+#include <QStyledItemDelegate>
 #include <QTime>
+#include <QWidget>
+
 #include "../struct.hpp"
+
+// 标签栏中每个标签项的显示角色: 背景色/文字色
+enum TagBarRole {
+    TagBarBackgroundRole = Qt::UserRole + 1,
+    TagBarForegroundRole,
+};
 
 class TagDelegate;
 
-class TagListView : public QListView
-{
+class TagListView : public QListView {
     Q_OBJECT
 private:
-    TagDelegate *m_delegate;
+    TagDelegate* m_delegate;
 
 public:
     explicit TagListView(QWidget* parent = nullptr);
-    ~TagListView()=default;
+    ~TagListView() = default;
 
-    void setModel(QAbstractItemModel *model) override;
+    void setModel(QAbstractItemModel* model) override;
 private slots:
     void adjustSizeToContent();
 };
 
-class TagDelegate : public QStyledItemDelegate
-{
+class TagDelegate : public QStyledItemDelegate {
     Q_OBJECT
 private:
     QSize m_padding = {12, 6};
@@ -35,10 +40,11 @@ private:
 
 public:
     explicit TagDelegate(QObject* parent = nullptr);
-    ~TagDelegate()=default;
+    ~TagDelegate() = default;
 
     int horizontalSpacing() const { return m_horizontalSpacing; }
 
-    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override;
-    void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &index) const override;
+    QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override;
+    void paint(QPainter* painter, const QStyleOptionViewItem& option,
+               const QModelIndex& index) const override;
 };

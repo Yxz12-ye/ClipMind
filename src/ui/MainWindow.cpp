@@ -95,6 +95,21 @@ void MainWindow::applyTheme() {
                               .arg(background, hover));
 }
 
+void MainWindow::refreshTagBar() {
+    model->clear();
+
+    const QVector<Tag> tags = controller->getTags();
+    for (const Tag& tag : tags) {
+        auto* item = new QStandardItem(tag.tagName);
+        item->setEditable(false);
+        item->setToolTip(tag.rule.isEmpty() ? tag.tagName
+                                            : QStringLiteral("%1\n%2").arg(tag.tagName, tag.rule));
+        item->setData(tag.tagBackColor, TagBarBackgroundRole);
+        item->setData(tag.tagNameColor, TagBarForegroundRole);
+        model->appendRow(item);
+    }
+}
+
 void MainWindow::setupTray() {
     const QIcon appIcon(":/img/icon.svg");
     setWindowIcon(appIcon);
@@ -338,6 +353,7 @@ MainWindow::MainWindow()
     setupUI();
 
     contentList.setItems(controller->getCopyDate());
+    refreshTagBar();
     connect(controller, &UIController::updateUI, this, &MainWindow::updateCopyList);
     connect(&searchWidget, &SearchWidget::inputTextChanged, controller,
             &UIController::requireSearch);
@@ -438,7 +454,7 @@ void MainWindow::hideWindow() {
 
 void MainWindow::openSettings() {
     settingsDialogOpen = true;
-    SettingsDialog dialog(hideAfterPaste, showTrayIcon, this);
+    SettingsDialog dialog(controller->sqlService(), hideAfterPaste, showTrayIcon, this);
     dialog.exec();
     settingsDialogOpen = false;
 
@@ -448,6 +464,10 @@ void MainWindow::openSettings() {
     settings.setValue("settings/hideAfterPaste", hideAfterPaste);
     settings.setValue("settings/showTrayIcon", showTrayIcon);
     trayIcon.setVisible(showTrayIcon);
+
+    // 标签设置可能已变更, 刷新主窗口标签栏与内容列表
+    refreshTagBar();
+    contentList.setItems(controller->getCopyDate());
 
     raise();
     activateWindow();

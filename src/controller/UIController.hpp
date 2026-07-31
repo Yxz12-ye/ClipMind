@@ -19,6 +19,10 @@ public:
     ~UIController();
 
     QVector<ContentListItemData> getCopyDate();
+    QVector<Tag> getTags() const;
+
+    // 供设置页等直接访问数据库完成标签持久化
+    SQLService* sqlService() const { return sql; }
 
 private slots:
     void onCopyTrigged();
