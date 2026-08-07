@@ -2,6 +2,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QTemporaryDir>
+#include <algorithm>
 #include <gtest/gtest.h>
 
 #include "service/SQLService.hpp"
@@ -97,6 +98,36 @@ TEST(SQLServiceTest, SavingDuplicateContentUpdatesItsMatchedTag) {
     EXPECT_EQ(items.front().tag.tagName, QStringLiteral("MATCHED"));
     EXPECT_EQ(items.front().copyTime, firstTime);
     EXPECT_EQ(items.front().updateTime, secondTime);
+}
+
+TEST(SQLServiceTest, SearchFiltersByTagAndContent) {
+    QTemporaryDir tempDir;
+    ASSERT_TRUE(tempDir.isValid());
+    SQLService service(QDir(tempDir.filePath(QStringLiteral("db"))));
+
+    const QDateTime time = QDateTime::fromSecsSinceEpoch(100);
+    Tag workTag{QStringLiteral("WORK"), QString(), SearchMode::None};
+    const Tag personalTag{QStringLiteral("PERSONAL"), QString(), SearchMode::None};
+    ASSERT_TRUE(
+        service.save(ContentListItemData{workTag, QStringLiteral("project plan"), time, time})
+            .isEmpty());
+    ASSERT_TRUE(
+        service.save(ContentListItemData{workTag, QStringLiteral("meeting notes"), time, time})
+            .isEmpty());
+    ASSERT_TRUE(
+        service.save(ContentListItemData{personalTag, QStringLiteral("personal plan"), time, time})
+            .isEmpty());
+
+    QVector<ContentListItemData> results =
+        service.search(QString(), QString(), workTag, SearchMode::None);
+    ASSERT_EQ(results.size(), 2);
+    EXPECT_TRUE(std::all_of(results.cbegin(), results.cend(), [](const auto& item) {
+        return item.tag.tagName == QLatin1String("WORK");
+    }));
+
+    results = service.search(QStringLiteral("plan"), QString(), workTag, SearchMode::None);
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(results.front().content, QStringLiteral("project plan"));
 }
 
 TEST(SQLServiceTest, TagCrudPersistsAcrossReload) {

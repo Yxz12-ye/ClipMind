@@ -44,6 +44,7 @@ private:
     void setupUI();
     void applyTheme();
     void refreshTagBar();
+    void resetTagFilter();
     void setupTray();
     void setupGlobalHotkey();
     void teardownGlobalHotkey();

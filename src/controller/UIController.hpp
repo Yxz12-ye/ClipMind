@@ -10,6 +10,7 @@ private:
     AbstractCopyEventListener* listener;
     SQLService* sql;
     QString currentSearchText;
+    QString currentTagName;
     SearchMode currentSearchMode = SearchMode::None;
 
     void refreshCurrentView();
@@ -29,6 +30,7 @@ private slots:
 
 public slots:
     void requireSearch(const QString& text);
+    void requireTagFilter(const QString& tagName);
     void pasteContent(const QString& text);
 
 signals:

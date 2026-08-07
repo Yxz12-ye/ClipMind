@@ -98,6 +98,12 @@ void MainWindow::applyTheme() {
 void MainWindow::refreshTagBar() {
     model->clear();
 
+    auto* allItem = new QStandardItem(QStringLiteral("ALL"));
+    allItem->setEditable(false);
+    allItem->setToolTip(QStringLiteral("显示全部内容"));
+    allItem->setData(QString(), TagBarNameRole);
+    model->appendRow(allItem);
+
     const QVector<Tag> tags = controller->getTags();
     for (const Tag& tag : tags) {
         auto* item = new QStandardItem(tag.tagName);
@@ -106,8 +112,20 @@ void MainWindow::refreshTagBar() {
                                             : QStringLiteral("%1\n%2").arg(tag.tagName, tag.rule));
         item->setData(tag.tagBackColor, TagBarBackgroundRole);
         item->setData(tag.tagNameColor, TagBarForegroundRole);
+        item->setData(tag.tagName, TagBarNameRole);
         model->appendRow(item);
     }
+
+    tagListView.selectionModel()->setCurrentIndex(model->index(0, 0),
+                                                  QItemSelectionModel::ClearAndSelect);
+}
+
+void MainWindow::resetTagFilter() {
+    if (model->rowCount() > 0) {
+        tagListView.selectionModel()->setCurrentIndex(model->index(0, 0),
+                                                      QItemSelectionModel::ClearAndSelect);
+    }
+    controller->requireTagFilter(QString());
 }
 
 void MainWindow::setupTray() {
@@ -361,6 +379,9 @@ MainWindow::MainWindow()
     connect(controller, &UIController::updateUI, this, &MainWindow::updateCopyList);
     connect(&searchWidget, &SearchWidget::inputTextChanged, controller,
             &UIController::requireSearch);
+    connect(&tagListView, &QListView::clicked, this, [this](const QModelIndex& index) {
+        controller->requireTagFilter(index.data(TagBarNameRole).toString());
+    });
     connect(&contentList, &ContentListWidget::itemClicked, controller, &UIController::pasteContent);
     connect(controller, &UIController::hideWindowRequested, this, [this] {
         if (hideAfterPaste) {
@@ -430,6 +451,8 @@ void MainWindow::showWindow(quintptr caretThreadId) {
     }
 #endif
 
+    resetTagFilter();
+
     QPoint _pos = resolveWindowPosition(caretThreadId);
     move(_pos);
 
@@ -471,7 +494,7 @@ void MainWindow::openSettings() {
 
     // 标签设置可能已变更, 刷新主窗口标签栏与内容列表
     refreshTagBar();
-    contentList.setItems(controller->getCopyDate());
+    resetTagFilter();
 
     raise();
     activateWindow();

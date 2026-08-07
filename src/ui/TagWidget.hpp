@@ -13,6 +13,7 @@
 enum TagBarRole {
     TagBarBackgroundRole = Qt::UserRole + 1,
     TagBarForegroundRole,
+    TagBarNameRole,
 };
 
 class TagDelegate;

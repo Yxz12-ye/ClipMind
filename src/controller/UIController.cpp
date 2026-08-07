@@ -19,6 +19,13 @@ QVector<Tag> UIController::getTags() const {
 }
 
 void UIController::refreshCurrentView() {
+    if (!currentTagName.isEmpty()) {
+        Tag tag;
+        tag.tagName = currentTagName;
+        emit updateUI(sql->search(currentSearchText, QString(), tag, currentSearchMode));
+        return;
+    }
+
     if (currentSearchText.trimmed().isEmpty()) {
         emit updateUI(sql->get());
         return;
@@ -39,6 +46,11 @@ void UIController::onCopyTrigged() {
 void UIController::requireSearch(const QString& text) {
     currentSearchText = text;
     currentSearchMode = SearchMode::None;
+    refreshCurrentView();
+}
+
+void UIController::requireTagFilter(const QString& tagName) {
+    currentTagName = tagName;
     refreshCurrentView();
 }
 
