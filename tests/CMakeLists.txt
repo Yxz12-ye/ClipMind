@@ -37,3 +37,4 @@ include(GoogleTest)
 # ---------------------------------------------------------------------------
 add_subdirectory(CopyEventListener)
 add_subdirectory(SQLService)
+add_subdirectory(EmbeddingService)
