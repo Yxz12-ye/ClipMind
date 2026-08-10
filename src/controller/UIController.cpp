@@ -3,7 +3,10 @@
 #include <QTimer>
 
 UIController::UIController(QObject* parent)
-    : QObject(parent), listener(createCopyEventListener(this)), sql(new SQLService(this)) {
+    : QObject(parent),
+      listener(createCopyEventListener(this)),
+      embedding(new EmbeddingService(this)),
+      sql(new SQLService(this)) {
     connect(listener, &AbstractCopyEventListener::clipboardChanged, this,
             &UIController::onCopyTrigged);
 }

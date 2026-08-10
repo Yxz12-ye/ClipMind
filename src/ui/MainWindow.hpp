@@ -14,6 +14,7 @@
 #include "./SearchWidget.hpp"
 #include "./TagWidget.hpp"
 #include "controller/UIController.hpp"
+#include "service/EmbeddingService.hpp"
 
 class QCloseEvent;
 
@@ -36,6 +37,7 @@ private:
     bool settingsDialogOpen = false;
     bool hideAfterPaste = true;
     bool showTrayIcon = true;
+    EmbeddingConfig embeddingConfig;
     bool hotkeyRegistered = false;
     unsigned int hotkeyModifiers = 0;
     unsigned int hotkeyVirtualKey = 0;

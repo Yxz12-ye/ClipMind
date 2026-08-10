@@ -2,6 +2,7 @@
 
 #include <QBrush>
 #include <QCheckBox>
+#include <QColor>
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -271,9 +272,19 @@ enum TagDataRole {
 
 }  // namespace
 
-SettingsDialog::SettingsDialog(SQLService* service, bool hideAfterPaste, bool showTrayIcon,
-                               QWidget* parent)
-    : QDialog(parent), service(service), autoHide(nullptr), showInTray(nullptr) {
+SettingsDialog::SettingsDialog(SQLService* service, EmbeddingService* embeddingService,
+                               bool hideAfterPaste, bool showTrayIcon,
+                               const EmbeddingConfig& embeddingConfig, QWidget* parent)
+    : QDialog(parent),
+      service(service),
+      embedding(embeddingService),
+      autoHide(nullptr),
+      showInTray(nullptr),
+      embeddingUrlMode(nullptr),
+      embeddingUrl(nullptr),
+      embeddingModel(nullptr),
+      embeddingTestButton(nullptr),
+      embeddingTestStatus(nullptr) {
     setWindowFlag(Qt::FramelessWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
     setModal(true);
@@ -281,7 +292,19 @@ SettingsDialog::SettingsDialog(SQLService* service, bool hideAfterPaste, bool sh
     setupUI();
     autoHide->setChecked(hideAfterPaste);
     showInTray->setChecked(showTrayIcon);
+    embeddingUrl->setText(embeddingConfig.url);
+    embeddingModel->setText(embeddingConfig.model);
+    const int urlModeIndex = embeddingUrlMode->findData(static_cast<int>(embeddingConfig.urlMode));
+    if (urlModeIndex >= 0) {
+        embeddingUrlMode->setCurrentIndex(urlModeIndex);
+    }
     applyTheme();
+}
+
+SettingsDialog::~SettingsDialog() {
+    if (embedding != nullptr && embeddingRequestId != 0) {
+        embedding->cancelRequest(embeddingRequestId);
+    }
 }
 
 void SettingsDialog::setupUI() {
@@ -311,8 +334,8 @@ void SettingsDialog::setupUI() {
     categories->setFrameShape(QFrame::NoFrame);
     categories->setFocusPolicy(Qt::NoFocus);
     categories->addItems({QStringLiteral("通用"), QStringLiteral("标签管理"),
-                          QStringLiteral("快捷键"), QStringLiteral("外观"),
-                          QStringLiteral("关于")});
+                          QStringLiteral("向量化"), QStringLiteral("快捷键"),
+                          QStringLiteral("外观"), QStringLiteral("关于")});
     categories->setCurrentRow(0);
 
     pages = new QStackedWidget(body);
@@ -333,6 +356,54 @@ void SettingsDialog::setupUI() {
                                                showInTray, behaviorSection));
     generalLayout->addWidget(behaviorSection);
     generalLayout->addStretch();
+
+    auto* embeddingPage = createPage(QStringLiteral("文本向量化服务"),
+                                     QStringLiteral("配置 OpenAI 兼容的 Embeddings 接口"), pages);
+    auto* embeddingLayout = qobject_cast<QVBoxLayout*>(embeddingPage->layout());
+    auto* embeddingConfigSection = createSection(QStringLiteral("服务配置"), embeddingPage);
+    auto* embeddingConfigLayout = qobject_cast<QVBoxLayout*>(embeddingConfigSection->layout());
+
+    embeddingUrlMode = new QComboBox(embeddingConfigSection);
+    embeddingUrlMode->addItem(QStringLiteral("完整接口"),
+                              static_cast<int>(EmbeddingUrlMode::FullEndpoint));
+    embeddingUrlMode->addItem(QStringLiteral("Base URL"),
+                              static_cast<int>(EmbeddingUrlMode::BaseUrl));
+    embeddingConfigLayout->addWidget(createSettingRow(
+        QStringLiteral("URL 类型"),
+        QStringLiteral("完整接口填写到 /embeddings；Base URL 填写到版本路径，例如 /v1"),
+        embeddingUrlMode, embeddingConfigSection));
+
+    embeddingUrl = new QLineEdit(embeddingConfigSection);
+    embeddingUrl->setPlaceholderText(QStringLiteral("例如：http://localhost:11434/v1/embeddings"));
+    embeddingUrl->setMinimumWidth(300);
+    embeddingConfigLayout->addWidget(createSettingRow(QStringLiteral("接口 URL"),
+                                                      QStringLiteral("服务端接收向量化请求的地址"),
+                                                      embeddingUrl, embeddingConfigSection));
+
+    embeddingModel = new QLineEdit(embeddingConfigSection);
+    embeddingModel->setPlaceholderText(QStringLiteral("例如：text-embedding-3-small"));
+    embeddingModel->setMinimumWidth(300);
+    embeddingConfigLayout->addWidget(createSettingRow(QStringLiteral("模型"),
+                                                      QStringLiteral("发送给接口的模型标识"),
+                                                      embeddingModel, embeddingConfigSection));
+    embeddingLayout->addWidget(embeddingConfigSection);
+
+    auto* embeddingTestControl = new QWidget(embeddingConfigSection);
+    embeddingTestControl->setFixedWidth(300);
+    auto* embeddingTestControlLayout = new QVBoxLayout(embeddingTestControl);
+    embeddingTestControlLayout->setContentsMargins(0, 0, 0, 0);
+    embeddingTestControlLayout->setSpacing(4);
+    embeddingTestButton = new QPushButton(QStringLiteral("测试接口"), embeddingTestControl);
+    embeddingTestButton->setObjectName("embeddingTestButton");
+    embeddingTestControlLayout->addWidget(embeddingTestButton, 0, Qt::AlignRight);
+    embeddingTestStatus =
+        createLabel(QStringLiteral("尚未测试"), "embeddingTestStatus", embeddingTestControl);
+    embeddingTestStatus->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    embeddingTestControlLayout->addWidget(embeddingTestStatus);
+    embeddingConfigLayout->addWidget(createSettingRow(
+        QStringLiteral("发送测试文本"), QStringLiteral("使用固定文本验证接口连通性并检查向量响应"),
+        embeddingTestControl, embeddingConfigSection));
+    embeddingLayout->addStretch();
 
     auto* tagPage =
         createPage(QStringLiteral("标签管理"), QStringLiteral("标签显示与自动匹配顺序"), pages);
@@ -412,6 +483,7 @@ void SettingsDialog::setupUI() {
 
     pages->addWidget(generalPage);
     pages->addWidget(tagPage);
+    pages->addWidget(embeddingPage);
     pages->addWidget(shortcutPage);
     pages->addWidget(appearancePage);
     pages->addWidget(aboutPage);
@@ -424,6 +496,39 @@ void SettingsDialog::setupUI() {
     connect(head, &CustomHead::moveRequested, this,
             [this](const QPoint& position) { move(position); });
     connect(categories, &QListWidget::currentRowChanged, pages, &QStackedWidget::setCurrentIndex);
+    connect(embeddingTestButton, &QPushButton::clicked, this, &SettingsDialog::testEmbedding);
+    connect(embedding, &EmbeddingService::embeddingSucceeded, this,
+            [this](quint64 requestId, const EmbeddingResult& result) {
+                if (requestId != embeddingRequestId) {
+                    return;
+                }
+
+                const qint64 elapsedMs =
+                    embeddingTestTimer.isValid() ? embeddingTestTimer.elapsed() : 0;
+                embeddingRequestId = 0;
+                embeddingTestButton->setEnabled(true);
+                embeddingTestButton->setText(QStringLiteral("测试接口"));
+                setEmbeddingStatus(QStringLiteral("成功：%1 维向量，耗时 %2 ms")
+                                       .arg(result.embedding.size())
+                                       .arg(elapsedMs),
+                                   QColor("#16A34A"));
+            });
+    connect(
+        embedding, &EmbeddingService::embeddingFailed, this,
+        [this](quint64 requestId, const EmbeddingError& error) {
+            if (requestId != embeddingRequestId) {
+                return;
+            }
+
+            embeddingRequestId = 0;
+            embeddingTestButton->setEnabled(true);
+            embeddingTestButton->setText(QStringLiteral("测试接口"));
+            const QString status =
+                error.httpStatus > 0
+                    ? QStringLiteral("失败（HTTP %1）：%2").arg(error.httpStatus).arg(error.message)
+                    : QStringLiteral("失败：%1").arg(error.message);
+            setEmbeddingStatus(status, QColor("#DC2626"));
+        });
     connect(addTagButton, &QPushButton::clicked, this, [this] { addTag(); });
     connect(moveUpButton, &QToolButton::clicked, this,
             [this] { moveTagItem(tagList->currentItem(), -1); });
@@ -438,6 +543,34 @@ void SettingsDialog::setupUI() {
                 deleteTagButton->setEnabled(current != nullptr &&
                                             !current->data(TagSystemRole).toBool());
             });
+}
+
+void SettingsDialog::testEmbedding() {
+    if (embedding == nullptr || embeddingRequestId != 0) {
+        return;
+    }
+
+    const EmbeddingConfig config = embeddingConfig();
+    if (config.url.trimmed().isEmpty()) {
+        setEmbeddingStatus(QStringLiteral("失败：请输入接口 URL"), QColor("#DC2626"));
+        return;
+    }
+    if (config.model.trimmed().isEmpty()) {
+        setEmbeddingStatus(QStringLiteral("失败：请输入模型名称"), QColor("#DC2626"));
+        return;
+    }
+
+    embeddingTestButton->setEnabled(false);
+    embeddingTestButton->setText(QStringLiteral("正在测试…"));
+    setEmbeddingStatus(QStringLiteral("正在请求接口…"), QColor("#64748B"));
+    embeddingTestTimer.start();
+    embeddingRequestId =
+        embedding->embedText(QStringLiteral("ClipMind 文本向量化接口测试"), config);
+}
+
+void SettingsDialog::setEmbeddingStatus(const QString& text, const QColor& color) {
+    embeddingTestStatus->setText(text);
+    embeddingTestStatus->setStyleSheet(QStringLiteral("color: %1;").arg(color.name()));
 }
 
 void SettingsDialog::addTag() {
@@ -578,6 +711,14 @@ bool SettingsDialog::trayIconEnabled() const {
     return showInTray->isChecked();
 }
 
+EmbeddingConfig SettingsDialog::embeddingConfig() const {
+    EmbeddingConfig config;
+    config.url = embeddingUrl->text().trimmed();
+    config.model = embeddingModel->text().trimmed();
+    config.urlMode = static_cast<EmbeddingUrlMode>(embeddingUrlMode->currentData().toInt());
+    return config;
+}
+
 void SettingsDialog::applyTheme() {
     const bool darkMode = palette().color(QPalette::Window).lightness() < 128;
     const QString background = darkMode ? "#1C1C1C" : "#FFFFFF";
@@ -634,6 +775,16 @@ void SettingsDialog::applyTheme() {
             "QFrame#settingsSection { background: %3; border: 1px solid %6; border-radius: 8px; }"
             "QFrame#settingsSection QWidget { background: transparent; }"
             "QFrame#settingsSection > QWidget#settingsRow { border-top: 1px solid %6; }"
+            "QFrame#settingsSection QLineEdit, QFrame#settingsSection QComboBox {"
+            "background: %1; border: 1px solid %6; border-radius: 6px; padding: 6px 8px;"
+            "color: %4;"
+            "}"
+            "QPushButton#embeddingTestButton {"
+            "background: #3B82F6; border: none; border-radius: 6px; color: white; padding: 6px "
+            "12px;"
+            "}"
+            "QPushButton#embeddingTestButton:hover { background: #2563EB; }"
+            "QPushButton#embeddingTestButton:disabled { background: #94A3B8; }"
             "QLabel#settingsShortcutValue { color: #3B82F6; font-weight: 600; }"
             "QCheckBox { color: %4; spacing: 6px; }"
             "QCheckBox::indicator { width: 16px; height: 16px; }"

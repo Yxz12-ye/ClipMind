@@ -1,6 +1,7 @@
 #include <QObject>
 
 #include "service/CopyEventListener.hpp"
+#include "service/EmbeddingService.hpp"
 #include "service/SQLService.hpp"
 #include "struct.hpp"
 
@@ -8,6 +9,7 @@ class UIController : public QObject {
     Q_OBJECT
 private:
     AbstractCopyEventListener* listener;
+    EmbeddingService* embedding;
     SQLService* sql;
     QString currentSearchText;
     QString currentTagName;
@@ -24,6 +26,7 @@ public:
 
     // 供设置页等直接访问数据库完成标签持久化
     SQLService* sqlService() const { return sql; }
+    EmbeddingService* embeddingService() const { return embedding; }
 
 private slots:
     void onCopyTrigged();

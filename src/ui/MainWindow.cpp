@@ -352,6 +352,13 @@ MainWindow::MainWindow()
     QSettings settings;
     hideAfterPaste = settings.value("settings/hideAfterPaste", true).toBool();
     showTrayIcon = settings.value("settings/showTrayIcon", true).toBool();
+    embeddingConfig.url = settings.value("settings/embeddingUrl").toString();
+    embeddingConfig.model = settings.value("settings/embeddingModel").toString();
+    embeddingConfig.urlMode =
+        settings.value("settings/embeddingUrlMode", QStringLiteral("full")).toString() ==
+                QStringLiteral("base")
+            ? EmbeddingUrlMode::BaseUrl
+            : EmbeddingUrlMode::FullEndpoint;
 
     tagContainer.setFixedSize(328, 28);
     tagContainer.setAttribute(Qt::WA_StyledBackground, true);
@@ -481,15 +488,23 @@ void MainWindow::hideWindow() {
 
 void MainWindow::openSettings() {
     settingsDialogOpen = true;
-    SettingsDialog dialog(controller->sqlService(), hideAfterPaste, showTrayIcon, this);
+    SettingsDialog dialog(controller->sqlService(), controller->embeddingService(), hideAfterPaste,
+                          showTrayIcon, embeddingConfig, this);
     dialog.exec();
     settingsDialogOpen = false;
 
     hideAfterPaste = dialog.hideAfterPasteEnabled();
     showTrayIcon = dialog.trayIconEnabled();
+    embeddingConfig = dialog.embeddingConfig();
     QSettings settings;
     settings.setValue("settings/hideAfterPaste", hideAfterPaste);
     settings.setValue("settings/showTrayIcon", showTrayIcon);
+    settings.setValue("settings/embeddingUrl", embeddingConfig.url);
+    settings.setValue("settings/embeddingUrlMode",
+                      embeddingConfig.urlMode == EmbeddingUrlMode::BaseUrl
+                          ? QStringLiteral("base")
+                          : QStringLiteral("full"));
+    settings.setValue("settings/embeddingModel", embeddingConfig.model);
     trayIcon.setVisible(showTrayIcon);
 
     // 标签设置可能已变更, 刷新主窗口标签栏与内容列表
