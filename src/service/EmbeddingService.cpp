@@ -61,7 +61,7 @@ quint64 EmbeddingService::embedText(const QString& text, const EmbeddingConfig& 
 
     QJsonObject payload;
     payload.insert(QStringLiteral("input"), text);
-    payload.insert(QStringLiteral("model"), config.model.trimmed());
+    payload.insert(QStringLiteral("model"), config.model.trimmed().isEmpty() ? QString() : config.model.trimmed());
 
     QNetworkReply* reply = networkManager->post(request, QJsonDocument(payload).toJson());
     auto* timeoutTimer = new QTimer(reply);

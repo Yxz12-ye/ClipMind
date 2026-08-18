@@ -104,6 +104,7 @@ protected:
     }
 };
 
+// 标签编辑页面
 class TagEditorDialog : public QDialog {
 public:
     explicit TagEditorDialog(QWidget* parent = nullptr) : TagEditorDialog(Tag(), parent) {}
@@ -246,13 +247,13 @@ private:
         }
 
         color = selectedColor;
-        updateColorButton(button, color);
+        updateColorButton(button, color);   // 更新选择颜色按钮
     }
 
     void updateRuleHint() {
         const auto mode = static_cast<SearchMode>(modeInput->currentData().toInt());
         if (mode == SearchMode::Semantics) {
-            ruleLabel->setText(QStringLiteral("语义匹配规则（暂未启用）"));
+            ruleLabel->setText(QStringLiteral("语义匹配规则"));
         } else if (mode == SearchMode::Regex) {
             ruleLabel->setText(QStringLiteral("正则表达式"));
         } else {
@@ -553,10 +554,6 @@ void SettingsDialog::testEmbedding() {
     const EmbeddingConfig config = embeddingConfig();
     if (config.url.trimmed().isEmpty()) {
         setEmbeddingStatus(QStringLiteral("失败：请输入接口 URL"), QColor("#DC2626"));
-        return;
-    }
-    if (config.model.trimmed().isEmpty()) {
-        setEmbeddingStatus(QStringLiteral("失败：请输入模型名称"), QColor("#DC2626"));
         return;
     }
 
