@@ -76,6 +76,8 @@ public:
     SQLService(const QDir& databaseDirectory, QObject* parent = nullptr);
     ~SQLService();
 
+    QDir databaseDirectory() const { return databaseDir; }
+
     QString save(const ContentListItemData& data);
     QString save(const Tag& tag);
     QVector<ContentListItemData> search(

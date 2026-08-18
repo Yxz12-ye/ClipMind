@@ -497,6 +497,12 @@ void SettingsDialog::setupUI() {
     connect(head, &CustomHead::moveRequested, this,
             [this](const QPoint& position) { move(position); });
     connect(categories, &QListWidget::currentRowChanged, pages, &QStackedWidget::setCurrentIndex);
+    connect(autoHide, &QCheckBox::toggled, this, &SettingsDialog::notifySettingsChanged);
+    connect(showInTray, &QCheckBox::toggled, this, &SettingsDialog::notifySettingsChanged);
+    connect(embeddingUrlMode, &QComboBox::currentIndexChanged, this,
+            &SettingsDialog::notifySettingsChanged);
+    connect(embeddingUrl, &QLineEdit::textChanged, this, &SettingsDialog::notifySettingsChanged);
+    connect(embeddingModel, &QLineEdit::textChanged, this, &SettingsDialog::notifySettingsChanged);
     connect(embeddingTestButton, &QPushButton::clicked, this, &SettingsDialog::testEmbedding);
     connect(embedding, &EmbeddingService::embeddingSucceeded, this,
             [this](quint64 requestId, const EmbeddingResult& result) {
@@ -714,6 +720,10 @@ EmbeddingConfig SettingsDialog::embeddingConfig() const {
     config.model = embeddingModel->text().trimmed();
     config.urlMode = static_cast<EmbeddingUrlMode>(embeddingUrlMode->currentData().toInt());
     return config;
+}
+
+void SettingsDialog::notifySettingsChanged() {
+    emit settingsChanged(hideAfterPasteEnabled(), trayIconEnabled(), embeddingConfig());
 }
 
 void SettingsDialog::applyTheme() {

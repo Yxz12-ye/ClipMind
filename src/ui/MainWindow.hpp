@@ -14,6 +14,7 @@
 #include "./SearchWidget.hpp"
 #include "./TagWidget.hpp"
 #include "controller/UIController.hpp"
+#include "service/ConfigService.hpp"
 #include "service/EmbeddingService.hpp"
 
 class QCloseEvent;
@@ -42,6 +43,8 @@ private:
     unsigned int hotkeyModifiers = 0;
     unsigned int hotkeyVirtualKey = 0;
     QString hotkeyLabel;
+    UIController* controller;
+    ConfigService* config;
 
     void setupUI();
     void applyTheme();
@@ -51,6 +54,7 @@ private:
     void setupGlobalHotkey();
     void teardownGlobalHotkey();
     void openSettings();
+    void applySettings(const ApplicationSettings& settings, bool persist);
     QPoint resolveWindowPosition(quintptr caretThreadId) const;
     void showWindow(quintptr caretThreadId = 0);
     void hideWindow();
@@ -58,8 +62,6 @@ private:
     static QPoint adjustWindowPositionToScreen(const QPoint& cursorPos, const QSize& windowSize,
                                                const QRect& availableGeometry);
     QScreen* getGlobalActiveWindowScreen() const;
-
-    UIController* controller;
 
 public:
     MainWindow(/* args */);

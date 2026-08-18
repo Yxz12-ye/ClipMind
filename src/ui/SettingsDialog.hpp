@@ -21,6 +21,8 @@ class CustomHead;
 struct Tag;
 
 class SettingsDialog : public QDialog {
+    Q_OBJECT
+
 public:
     SettingsDialog(SQLService* service, EmbeddingService* embeddingService, bool hideAfterPaste,
                    bool showTrayIcon, const EmbeddingConfig& embeddingConfig,
@@ -30,6 +32,10 @@ public:
     bool hideAfterPasteEnabled() const;
     bool trayIconEnabled() const;
     EmbeddingConfig embeddingConfig() const;
+
+signals:
+    void settingsChanged(bool hideAfterPaste, bool showTrayIcon,
+                         const EmbeddingConfig& embeddingConfig);
 
 protected:
     void changeEvent(QEvent* event) override;
@@ -63,4 +69,5 @@ private:
     void moveTagItem(QListWidgetItem* item, int offset);
     void testEmbedding();
     void setEmbeddingStatus(const QString& text, const QColor& color);
+    void notifySettingsChanged();
 };

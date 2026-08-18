@@ -10,7 +10,6 @@
 #include <QItemSelectionModel>
 #include <QPalette>
 #include <QScreen>
-#include <QSettings>
 #include <QStandardItem>
 #include <QStringList>
 
@@ -342,23 +341,15 @@ MainWindow::MainWindow()
       layout(&central),
       trayMenu(this),
       trayIcon(this),
-      controller(new UIController(this)) {
+      controller(new UIController(this)),
+      config(new ConfigService(controller->sqlService()->databaseDirectory())) {
     setWindowFlag(Qt::FramelessWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
     setFixedSize(360, 400);
     central.setObjectName("centralPanel");
     central.setAttribute(Qt::WA_StyledBackground, true);
 
-    QSettings settings;
-    hideAfterPaste = settings.value("settings/hideAfterPaste", true).toBool();
-    showTrayIcon = settings.value("settings/showTrayIcon", true).toBool();
-    embeddingConfig.url = settings.value("settings/embeddingUrl").toString();
-    embeddingConfig.model = settings.value("settings/embeddingModel").toString();
-    embeddingConfig.urlMode =
-        settings.value("settings/embeddingUrlMode", QStringLiteral("full")).toString() ==
-                QStringLiteral("base")
-            ? EmbeddingUrlMode::BaseUrl
-            : EmbeddingUrlMode::FullEndpoint;
+    applySettings(config->load(), false);
 
     tagContainer.setFixedSize(328, 28);
     tagContainer.setAttribute(Qt::WA_StyledBackground, true);
@@ -399,6 +390,7 @@ MainWindow::MainWindow()
 
 MainWindow::~MainWindow() {
     teardownGlobalHotkey();
+    delete config;
 }
 
 void MainWindow::changeEvent(QEvent* event) {
@@ -490,22 +482,14 @@ void MainWindow::openSettings() {
     settingsDialogOpen = true;
     SettingsDialog dialog(controller->sqlService(), controller->embeddingService(), hideAfterPaste,
                           showTrayIcon, embeddingConfig, this);
+    connect(&dialog, &SettingsDialog::settingsChanged, this,
+            [this](bool hideAfterPasteEnabled, bool trayIconEnabled,
+                   const EmbeddingConfig& updatedEmbeddingConfig) {
+                applySettings({hideAfterPasteEnabled, trayIconEnabled, updatedEmbeddingConfig},
+                              true);
+            });
     dialog.exec();
     settingsDialogOpen = false;
-
-    hideAfterPaste = dialog.hideAfterPasteEnabled();
-    showTrayIcon = dialog.trayIconEnabled();
-    embeddingConfig = dialog.embeddingConfig();
-    QSettings settings;
-    settings.setValue("settings/hideAfterPaste", hideAfterPaste);
-    settings.setValue("settings/showTrayIcon", showTrayIcon);
-    settings.setValue("settings/embeddingUrl", embeddingConfig.url);
-    settings.setValue("settings/embeddingUrlMode",
-                      embeddingConfig.urlMode == EmbeddingUrlMode::BaseUrl
-                          ? QStringLiteral("base")
-                          : QStringLiteral("full"));
-    settings.setValue("settings/embeddingModel", embeddingConfig.model);
-    trayIcon.setVisible(showTrayIcon);
 
     // 标签设置可能已变更, 刷新主窗口标签栏与内容列表
     refreshTagBar();
@@ -513,6 +497,17 @@ void MainWindow::openSettings() {
 
     raise();
     activateWindow();
+}
+
+void MainWindow::applySettings(const ApplicationSettings& settings, bool persist) {
+    hideAfterPaste = settings.hideAfterPaste;
+    showTrayIcon = settings.showTrayIcon;
+    embeddingConfig = settings.embeddingConfig;
+
+    if (persist) {
+        trayIcon.setVisible(showTrayIcon);
+        config->save(settings);
+    }
 }
 
 void MainWindow::exitFromTray() {
