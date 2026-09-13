@@ -10,8 +10,17 @@
 #include "../struct.hpp"
 #include "sqlite3.h"
 
+// 配置文件目录(直接硬编码)
+#ifdef Q_OS_WIN
 #define DATABASE_DIR "/AppData/Local/ClipMind"
+#elif defined(Q_OS_LINUX)
+#define DATABASE_DIR "/.local/share/ClipMind"  // 或 "/.config/ClipMind"
+#elif defined(Q_OS_MACOS)
+#define DATABASE_DIR "/Library/Application Support/ClipMind"
+#endif
+// 数据库名称
 #define DATABASE_NAME "Clipboard.db"
+
 #define TABLE_TAG                                                   \
     "-- 创建 Tag 表\n"                                              \
     "CREATE TABLE IF NOT EXISTS Tag (\n"                            \
