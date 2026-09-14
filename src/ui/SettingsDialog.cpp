@@ -19,9 +19,13 @@
 #include <QStyledItemDelegate>
 #include <QToolButton>
 #include <QVBoxLayout>
+#include <algorithm>
 
 #include "CustomHead.hpp"
+#include "SettingEditor.hpp"
 #include "service/SQLService.hpp"
+#include "service/SettingRegistry.hpp"
+#include "service/SettingService.hpp"
 #include "struct.hpp"
 
 namespace {
@@ -271,16 +275,13 @@ enum TagDataRole {
 
 }  // namespace
 
-SettingsDialog::SettingsDialog(SQLService* service, bool hideAfterPaste, bool showTrayIcon,
-                               QWidget* parent)
-    : QDialog(parent), service(service), autoHide(nullptr), showInTray(nullptr) {
+SettingsDialog::SettingsDialog(SQLService* service, SettingRegistry* registry, QWidget* parent)
+    : QDialog(parent), service(service), registry(registry) {
     setWindowFlag(Qt::FramelessWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
     setModal(true);
     setFixedSize(760, 520);
     setupUI();
-    autoHide->setChecked(hideAfterPaste);
-    showInTray->setChecked(showTrayIcon);
     applyTheme();
 }
 
@@ -310,111 +311,27 @@ void SettingsDialog::setupUI() {
     categories->setFixedWidth(152);
     categories->setFrameShape(QFrame::NoFrame);
     categories->setFocusPolicy(Qt::NoFocus);
-    categories->addItems({QStringLiteral("通用"), QStringLiteral("标签管理"),
-                          QStringLiteral("快捷键"), QStringLiteral("外观"),
-                          QStringLiteral("关于")});
-    categories->setCurrentRow(0);
 
     pages = new QStackedWidget(body);
     pages->setObjectName("settingsPages");
 
-    auto* generalPage =
-        createPage(QStringLiteral("通用"), QStringLiteral("管理窗口和剪贴板的默认行为"), pages);
-    auto* generalLayout = qobject_cast<QVBoxLayout*>(generalPage->layout());
-    auto* behaviorSection = createSection(QStringLiteral("窗口行为"), generalPage);
-    auto* behaviorLayout = qobject_cast<QVBoxLayout*>(behaviorSection->layout());
-    autoHide = new QCheckBox(QStringLiteral("自动隐藏"), behaviorSection);
-    behaviorLayout->addWidget(createSettingRow(
-        QStringLiteral("粘贴后收起窗口"), QStringLiteral("选择剪贴板内容并粘贴后自动隐藏主窗口"),
-        autoHide, behaviorSection));
-    showInTray = new QCheckBox(QStringLiteral("显示"), behaviorSection);
-    behaviorLayout->addWidget(createSettingRow(QStringLiteral("通知区域图标"),
-                                               QStringLiteral("在系统通知区域保留 ClipMind 图标"),
-                                               showInTray, behaviorSection));
-    generalLayout->addWidget(behaviorSection);
-    generalLayout->addStretch();
-
-    auto* tagPage =
-        createPage(QStringLiteral("标签管理"), QStringLiteral("标签显示与自动匹配顺序"), pages);
-    auto* tagLayout = qobject_cast<QVBoxLayout*>(tagPage->layout());
-    auto* tagToolbar = new QHBoxLayout;
-    tagToolbar->setContentsMargins(0, 0, 0, 0);
-    auto* systemTagHint = createLabel(QStringLiteral("系统保留标签不可编辑或删除"),
-                                      "settingsItemDescription", tagPage);
-    auto* addTagButton = new QPushButton(QStringLiteral("+ 添加标签"), tagPage);
-    addTagButton->setObjectName("addTagButton");
-    auto* moveUpButton = new QToolButton(tagPage);
-    moveUpButton->setObjectName("tagToolbarButton");
-    moveUpButton->setArrowType(Qt::UpArrow);
-    moveUpButton->setToolTip(QStringLiteral("上移标签"));
-    auto* moveDownButton = new QToolButton(tagPage);
-    moveDownButton->setObjectName("tagToolbarButton");
-    moveDownButton->setArrowType(Qt::DownArrow);
-    moveDownButton->setToolTip(QStringLiteral("下移标签"));
-    auto* deleteTagButton = new QPushButton(QStringLiteral("删除"), tagPage);
-    deleteTagButton->setObjectName("deleteTagButton");
-    deleteTagButton->setEnabled(false);
-    tagToolbar->addWidget(systemTagHint, 1);
-    tagToolbar->addWidget(addTagButton);
-    tagToolbar->addWidget(moveUpButton);
-    tagToolbar->addWidget(moveDownButton);
-    tagToolbar->addWidget(deleteTagButton);
-    tagLayout->addLayout(tagToolbar);
-
-    tagList = new QListWidget(tagPage);
-    tagList->setObjectName("tagManagerList");
-    tagList->setItemDelegate(new TagManagerDelegate(tagList));
-    tagList->setFrameShape(QFrame::NoFrame);
-    tagList->setSelectionMode(QAbstractItemView::SingleSelection);
-    tagList->setDragDropMode(QAbstractItemView::NoDragDrop);
-    tagList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    tagLayout->addWidget(tagList, 1);
-
-    const QVector<Tag> savedTags = service->getTags();
-    for (const Tag& tag : savedTags) {
-        addTagItem(tag);
+    if (registry != nullptr) {
+        for (const auto& page : registry->pages()) {
+            categories->addItem(page.title);
+            if (page.id == QStringLiteral("core/tags")) {
+                pages->addWidget(createTagPage(pages));
+            } else if (page.id == QStringLiteral("core/shortcuts")) {
+                pages->addWidget(createShortcutPage(pages));
+            } else if (page.id == QStringLiteral("core/appearance")) {
+                pages->addWidget(createAppearancePage(pages));
+            } else if (page.id == QStringLiteral("core/about")) {
+                pages->addWidget(createAboutPage(pages));
+            } else {
+                pages->addWidget(createStandardPage(page.id, pages));
+            }
+        }
     }
-
-    auto* shortcutPage =
-        createPage(QStringLiteral("快捷键"), QStringLiteral("快速呼出 ClipMind"), pages);
-    auto* shortcutLayout = qobject_cast<QVBoxLayout*>(shortcutPage->layout());
-    auto* shortcutSection = createSection(QStringLiteral("全局快捷键"), shortcutPage);
-    auto* shortcutSectionLayout = qobject_cast<QVBoxLayout*>(shortcutSection->layout());
-    shortcutSectionLayout->addWidget(createSettingRow(
-        QStringLiteral("呼出窗口"), QStringLiteral("当前使用的全局快捷键"),
-        createLabel(QStringLiteral("Alt + V"), "settingsShortcutValue", shortcutSection),
-        shortcutSection));
-    shortcutLayout->addWidget(shortcutSection);
-    shortcutLayout->addStretch();
-
-    auto* appearancePage =
-        createPage(QStringLiteral("外观"), QStringLiteral("界面随系统主题自动调整"), pages);
-    auto* appearanceLayout = qobject_cast<QVBoxLayout*>(appearancePage->layout());
-    auto* appearanceSection = createSection(QStringLiteral("主题"), appearancePage);
-    auto* appearanceSectionLayout = qobject_cast<QVBoxLayout*>(appearanceSection->layout());
-    appearanceSectionLayout->addWidget(createSettingRow(
-        QStringLiteral("跟随系统主题"), QStringLiteral("根据系统明暗模式调整界面颜色"),
-        createLabel(QStringLiteral("已启用"), "settingsShortcutValue", appearanceSection),
-        appearanceSection));
-    appearanceLayout->addWidget(appearanceSection);
-    appearanceLayout->addStretch();
-
-    auto* aboutPage =
-        createPage(QStringLiteral("关于"), QStringLiteral("ClipMind 剪贴板管理器"), pages);
-    auto* aboutLayout = qobject_cast<QVBoxLayout*>(aboutPage->layout());
-    auto* aboutSection = createSection(QStringLiteral("应用信息"), aboutPage);
-    auto* aboutSectionLayout = qobject_cast<QVBoxLayout*>(aboutSection->layout());
-    aboutSectionLayout->addWidget(createSettingRow(
-        QStringLiteral("版本"), QStringLiteral("当前安装的 ClipMind 版本"),
-        createLabel(QStringLiteral("0.1.0"), "settingsShortcutValue", aboutSection), aboutSection));
-    aboutLayout->addWidget(aboutSection);
-    aboutLayout->addStretch();
-
-    pages->addWidget(generalPage);
-    pages->addWidget(tagPage);
-    pages->addWidget(shortcutPage);
-    pages->addWidget(appearancePage);
-    pages->addWidget(aboutPage);
+    categories->setCurrentRow(0);
 
     bodyLayout->addWidget(categories);
     bodyLayout->addWidget(pages, 1);
@@ -424,6 +341,84 @@ void SettingsDialog::setupUI() {
     connect(head, &CustomHead::moveRequested, this,
             [this](const QPoint& position) { move(position); });
     connect(categories, &QListWidget::currentRowChanged, pages, &QStackedWidget::setCurrentIndex);
+    if (registry != nullptr && registry->service() != nullptr) {
+        connect(registry->service(), &SettingService::valueChanged, this,
+                [this](const QString& key, const QVariant& value) {
+                    if (auto* editor = editors.value(key, nullptr); editor != nullptr) {
+                        editor->setValue(value);
+                    }
+                });
+    }
+}
+
+QWidget* SettingsDialog::createStandardPage(const QString& pageId, QWidget* parent) {
+    const auto pageIt = std::find_if(registry->pages().cbegin(), registry->pages().cend(),
+                                     [&pageId](const auto& page) { return page.id == pageId; });
+    if (pageIt == registry->pages().cend()) {
+        return new QWidget(parent);
+    }
+
+    auto* page = createPage(pageIt->title, pageIt->description, parent);
+    auto* pageLayout = qobject_cast<QVBoxLayout*>(page->layout());
+    for (const auto& group : registry->groups(pageId)) {
+        auto* section = createSection(group.title, page);
+        auto* sectionLayout = qobject_cast<QVBoxLayout*>(section->layout());
+        for (const auto& setting : registry->settings(group.id)) {
+            auto* editor = createEditor(setting, section);
+            if (editor == nullptr) {
+                continue;
+            }
+            sectionLayout->addWidget(
+                createSettingRow(setting.title, setting.description, editor, section));
+            bindEditor(setting, editor);
+        }
+        pageLayout->addWidget(section);
+    }
+    pageLayout->addStretch();
+    return page;
+}
+
+QWidget* SettingsDialog::createTagPage(QWidget* parent) {
+    auto* page =
+        createPage(QStringLiteral("标签管理"), QStringLiteral("标签显示与自动匹配顺序"), parent);
+    auto* tagLayout = qobject_cast<QVBoxLayout*>(page->layout());
+    auto* tagToolbar = new QHBoxLayout;
+    tagToolbar->setContentsMargins(0, 0, 0, 0);
+    auto* systemTagHint =
+        createLabel(QStringLiteral("系统保留标签不可编辑或删除"), "settingsItemDescription", page);
+    auto* addTagButton = new QPushButton(QStringLiteral("+ 添加标签"), page);
+    addTagButton->setObjectName("addTagButton");
+    auto* moveUpButton = new QToolButton(page);
+    moveUpButton->setObjectName("tagToolbarButton");
+    moveUpButton->setArrowType(Qt::UpArrow);
+    moveUpButton->setToolTip(QStringLiteral("上移标签"));
+    auto* moveDownButton = new QToolButton(page);
+    moveDownButton->setObjectName("tagToolbarButton");
+    moveDownButton->setArrowType(Qt::DownArrow);
+    moveDownButton->setToolTip(QStringLiteral("下移标签"));
+    auto* deleteTagButton = new QPushButton(QStringLiteral("删除"), page);
+    deleteTagButton->setObjectName("deleteTagButton");
+    deleteTagButton->setEnabled(false);
+    tagToolbar->addWidget(systemTagHint, 1);
+    tagToolbar->addWidget(addTagButton);
+    tagToolbar->addWidget(moveUpButton);
+    tagToolbar->addWidget(moveDownButton);
+    tagToolbar->addWidget(deleteTagButton);
+    tagLayout->addLayout(tagToolbar);
+
+    tagList = new QListWidget(page);
+    tagList->setObjectName("tagManagerList");
+    tagList->setItemDelegate(new TagManagerDelegate(tagList));
+    tagList->setFrameShape(QFrame::NoFrame);
+    tagList->setSelectionMode(QAbstractItemView::SingleSelection);
+    tagList->setDragDropMode(QAbstractItemView::NoDragDrop);
+    tagList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+    tagLayout->addWidget(tagList, 1);
+
+    for (const Tag& tag : service->getTags()) {
+        addTagItem(tag);
+    }
+
     connect(addTagButton, &QPushButton::clicked, this, [this] { addTag(); });
     connect(moveUpButton, &QToolButton::clicked, this,
             [this] { moveTagItem(tagList->currentItem(), -1); });
@@ -437,6 +432,78 @@ void SettingsDialog::setupUI() {
             [deleteTagButton](QListWidgetItem* current, QListWidgetItem*) {
                 deleteTagButton->setEnabled(current != nullptr &&
                                             !current->data(TagSystemRole).toBool());
+            });
+    return page;
+}
+
+QWidget* SettingsDialog::createShortcutPage(QWidget* parent) {
+    auto* page = createPage(QStringLiteral("快捷键"), QStringLiteral("快速呼出 ClipMind"), parent);
+    auto* pageLayout = qobject_cast<QVBoxLayout*>(page->layout());
+    auto* section = createSection(QStringLiteral("全局快捷键"), page);
+    auto* sectionLayout = qobject_cast<QVBoxLayout*>(section->layout());
+    sectionLayout->addWidget(createSettingRow(
+        QStringLiteral("呼出窗口"), QStringLiteral("当前使用的全局快捷键"),
+        createLabel(QStringLiteral("Alt + V"), "settingsShortcutValue", section), section));
+    pageLayout->addWidget(section);
+    pageLayout->addStretch();
+    return page;
+}
+
+QWidget* SettingsDialog::createAppearancePage(QWidget* parent) {
+    auto* page =
+        createPage(QStringLiteral("外观"), QStringLiteral("界面随系统主题自动调整"), parent);
+    auto* pageLayout = qobject_cast<QVBoxLayout*>(page->layout());
+    auto* section = createSection(QStringLiteral("主题"), page);
+    auto* sectionLayout = qobject_cast<QVBoxLayout*>(section->layout());
+    sectionLayout->addWidget(createSettingRow(
+        QStringLiteral("跟随系统主题"), QStringLiteral("根据系统明暗模式调整界面颜色"),
+        createLabel(QStringLiteral("已启用"), "settingsShortcutValue", section), section));
+    pageLayout->addWidget(section);
+    pageLayout->addStretch();
+    return page;
+}
+
+QWidget* SettingsDialog::createAboutPage(QWidget* parent) {
+    auto* page =
+        createPage(QStringLiteral("关于"), QStringLiteral("ClipMind 剪贴板管理器"), parent);
+    auto* pageLayout = qobject_cast<QVBoxLayout*>(page->layout());
+    auto* section = createSection(QStringLiteral("应用信息"), page);
+    auto* sectionLayout = qobject_cast<QVBoxLayout*>(section->layout());
+    sectionLayout->addWidget(createSettingRow(
+        QStringLiteral("版本"), QStringLiteral("当前安装的 ClipMind 版本"),
+        createLabel(QStringLiteral("0.1.0"), "settingsShortcutValue", section), section));
+    pageLayout->addWidget(section);
+    pageLayout->addStretch();
+    return page;
+}
+
+SettingEditor* SettingsDialog::createEditor(const SettingDefinition& setting, QWidget* parent) {
+    const QVariant currentValue = registry->service()->get(setting.key);
+    switch (setting.type) {
+    case SettingType::Boolean:
+        return new BoolSettingEditor(currentValue.toBool(), parent);
+    case SettingType::String:
+        return new StringSettingEditor(currentValue.toString(), parent);
+    case SettingType::Integer:
+        return new IntSettingEditor(currentValue.toInt(), parent);
+    case SettingType::Enum: {
+        QVector<QPair<QString, QString>> options;
+        for (const auto& option : setting.options) {
+            options.append(qMakePair(option.value, option.label));
+        }
+        return new EnumSettingEditor(options, currentValue.toString(), parent);
+    }
+    }
+    return nullptr;
+}
+
+void SettingsDialog::bindEditor(const SettingDefinition& setting, SettingEditor* editor) {
+    editors.insert(setting.key, editor);
+    connect(editor, &SettingEditor::valueChanged, this,
+            [this, key = setting.key](const QVariant& value) {
+                if (registry->service() != nullptr) {
+                    registry->service()->set(key, value);
+                }
             });
 }
 
@@ -568,14 +635,6 @@ void SettingsDialog::moveTagItem(QListWidgetItem* item, int offset) {
         QMessageBox::warning(this, QStringLiteral("排序标签"),
                              QStringLiteral("排序保存失败，已恢复原顺序"));
     }
-}
-
-bool SettingsDialog::hideAfterPasteEnabled() const {
-    return autoHide->isChecked();
-}
-
-bool SettingsDialog::trayIconEnabled() const {
-    return showInTray->isChecked();
 }
 
 void SettingsDialog::applyTheme() {

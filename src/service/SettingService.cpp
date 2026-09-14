@@ -192,8 +192,13 @@ bool SettingService::_set(const QString& key, const QVariant& value) {
     _values.insert(key, converted);
     _dirty = true;
     _save();
+    emit valueChanged(key, converted);
 
     return !_dirty;  // 落盘失败时 _dirty 仍为 true
+}
+
+bool SettingService::registerSetting(const QString& key, const QVariant& defaultValue) {
+    return _register(key, defaultValue);
 }
 
 SettingService::SettingService(/* args */) {

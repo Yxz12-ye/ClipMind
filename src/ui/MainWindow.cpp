@@ -10,11 +10,12 @@
 #include <QItemSelectionModel>
 #include <QPalette>
 #include <QScreen>
-#include <QSettings>
 #include <QStandardItem>
 #include <QStringList>
 
 #include "SettingsDialog.hpp"
+#include "service/SettingRegistry.hpp"
+#include "service/SettingService.hpp"
 
 #ifdef Q_OS_WIN
 #include <WinUser.h>
@@ -342,16 +343,49 @@ MainWindow::MainWindow()
       layout(&central),
       trayMenu(this),
       trayIcon(this),
-      controller(new UIController(this)) {
+      controller(new UIController(this)),
+      settingService(SettingService::instance()),
+      settingRegistry(new SettingRegistry(settingService, this)) {
     setWindowFlag(Qt::FramelessWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
     setFixedSize(360, 400);
     central.setObjectName("centralPanel");
     central.setAttribute(Qt::WA_StyledBackground, true);
 
-    QSettings settings;
-    hideAfterPaste = settings.value("settings/hideAfterPaste", true).toBool();
-    showTrayIcon = settings.value("settings/showTrayIcon", true).toBool();
+    auto coreSettings = settingRegistry->registerPlugin(QStringLiteral("core"));
+    coreSettings.registerPage(QStringLiteral("general"), QStringLiteral("通用"),
+                              QStringLiteral("管理窗口和剪贴板的默认行为"), 0);
+    coreSettings.registerGroup(QStringLiteral("general"), QStringLiteral("behavior"),
+                               QStringLiteral("窗口行为"));
+    coreSettings.registerBool(QStringLiteral("behavior"), QStringLiteral("hideAfterPaste"),
+                              QStringLiteral("粘贴后收起窗口"),
+                              QStringLiteral("选择剪贴板内容并粘贴后自动隐藏主窗口"), true);
+    coreSettings.registerBool(QStringLiteral("behavior"), QStringLiteral("showTrayIcon"),
+                              QStringLiteral("通知区域图标"),
+                              QStringLiteral("在系统通知区域保留 ClipMind 图标"), true);
+
+    coreSettings.registerPage(QStringLiteral("tags"), QStringLiteral("标签管理"),
+                              QStringLiteral("标签显示与自动匹配顺序"), 10);
+    coreSettings.registerPage(QStringLiteral("shortcuts"), QStringLiteral("快捷键"),
+                              QStringLiteral("快速呼出 ClipMind"), 20);
+    coreSettings.registerPage(QStringLiteral("appearance"), QStringLiteral("外观"),
+                              QStringLiteral("界面随系统主题自动调整"), 30);
+    coreSettings.registerPage(QStringLiteral("about"), QStringLiteral("关于"),
+                              QStringLiteral("ClipMind 剪贴板管理器"), 40);
+    // Plugin modules register their settings before the registry is sealed.
+    settingRegistry->seal();
+
+    hideAfterPaste = settingService->get(QStringLiteral("core/hideAfterPaste")).toBool();
+    showTrayIcon = settingService->get(QStringLiteral("core/showTrayIcon")).toBool();
+    connect(settingService, &SettingService::valueChanged, this,
+            [this](const QString& key, const QVariant& value) {
+                if (key == QStringLiteral("core/hideAfterPaste")) {
+                    hideAfterPaste = value.toBool();
+                } else if (key == QStringLiteral("core/showTrayIcon")) {
+                    showTrayIcon = value.toBool();
+                    trayIcon.setVisible(showTrayIcon);
+                }
+            });
 
     tagContainer.setFixedSize(328, 28);
     tagContainer.setAttribute(Qt::WA_StyledBackground, true);
@@ -481,15 +515,12 @@ void MainWindow::hideWindow() {
 
 void MainWindow::openSettings() {
     settingsDialogOpen = true;
-    SettingsDialog dialog(controller->sqlService(), hideAfterPaste, showTrayIcon, this);
+    SettingsDialog dialog(controller->sqlService(), settingRegistry, this);
     dialog.exec();
     settingsDialogOpen = false;
 
-    hideAfterPaste = dialog.hideAfterPasteEnabled();
-    showTrayIcon = dialog.trayIconEnabled();
-    QSettings settings;
-    settings.setValue("settings/hideAfterPaste", hideAfterPaste);
-    settings.setValue("settings/showTrayIcon", showTrayIcon);
+    hideAfterPaste = settingService->get(QStringLiteral("core/hideAfterPaste")).toBool();
+    showTrayIcon = settingService->get(QStringLiteral("core/showTrayIcon")).toBool();
     trayIcon.setVisible(showTrayIcon);
 
     // 标签设置可能已变更, 刷新主窗口标签栏与内容列表

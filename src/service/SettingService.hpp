@@ -65,6 +65,7 @@ public:
     bool registerSetting(const QString& key, const T& defaultValue) {
         return _register(key, _toVariant(defaultValue));
     }
+    bool registerSetting(const QString& key, const QVariant& defaultValue);
     /**
      * @brief 修改已注册的键的值, 类型需与注册时的默认值兼容, 成功后立即写回配置文件
      * @param key 唯一键值
@@ -88,4 +89,7 @@ public:
      * @return 返回`QVariant`对象, 由调用方决定转化
      */
     QVariant get(const QString& key) const;
+
+signals:
+    void valueChanged(const QString& key, const QVariant& value);
 };

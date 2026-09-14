@@ -1,40 +1,45 @@
 #pragma once
 
 #include <QDialog>
+#include <QHash>
 
 class QEvent;
-class QCheckBox;
 class QListWidget;
 class QListWidgetItem;
 class QStackedWidget;
 class SQLService;
+class SettingEditor;
+class SettingRegistry;
 
 class CustomHead;
 struct Tag;
 
 class SettingsDialog : public QDialog {
 public:
-    SettingsDialog(SQLService* service, bool hideAfterPaste, bool showTrayIcon,
-                   QWidget* parent = nullptr);
+    SettingsDialog(SQLService* service, SettingRegistry* registry, QWidget* parent = nullptr);
     ~SettingsDialog() override = default;
-
-    bool hideAfterPasteEnabled() const;
-    bool trayIconEnabled() const;
 
 protected:
     void changeEvent(QEvent* event) override;
 
 private:
-    SQLService* service;
+    SQLService* service = nullptr;
+    SettingRegistry* registry = nullptr;
     CustomHead* head;
     QListWidget* categories;
     QStackedWidget* pages;
     QListWidget* tagList;
-    QCheckBox* autoHide;
-    QCheckBox* showInTray;
+    QHash<QString, SettingEditor*> editors;
 
     void setupUI();
     void applyTheme();
+    QWidget* createStandardPage(const QString& pageId, QWidget* parent);
+    QWidget* createTagPage(QWidget* parent);
+    QWidget* createShortcutPage(QWidget* parent);
+    QWidget* createAppearancePage(QWidget* parent);
+    QWidget* createAboutPage(QWidget* parent);
+    SettingEditor* createEditor(const struct SettingDefinition& setting, QWidget* parent);
+    void bindEditor(const struct SettingDefinition& setting, SettingEditor* editor);
     void addTag();
     void addTagItem(const Tag& tag);
     void updateTagItem(QListWidgetItem* item, const Tag& tag);
