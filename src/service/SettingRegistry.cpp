@@ -8,10 +8,12 @@
 
 namespace {
 
+// 局部 id 不能为空, 且不允许含 `/`: 斜杠是命名空间分隔符, 出现即无法与插件名区分
 bool validIdentifier(const QString& value) {
     return !value.trimmed().isEmpty() && !value.contains('/');
 }
 
+// 按 id 判断页面/分组是否已注册, 避免重复定义
 template <typename T>
 bool containsId(const QVector<T>& values, const QString& id) {
     return std::any_of(values.cbegin(), values.cend(),
@@ -73,6 +75,7 @@ SettingRegistry::SettingRegistry(SettingService* service, QObject* parent)
     : QObject(parent), settingService(service) {}
 
 PluginSettings SettingRegistry::registerPlugin(const QString& pluginId) {
+    // 返回空句柄而非报错: registry 为空时其成员方法都会直接返回 false
     if (!validIdentifier(pluginId)) {
         qWarning() << "invalid plugin id:" << pluginId;
         return {};
@@ -94,6 +97,7 @@ const QVector<SettingPageDefinition>& SettingRegistry::pages() const {
 }
 
 QVector<SettingGroupDefinition> SettingRegistry::groups(const QString& pageId) const {
+    // 返回副本: 分组按注册顺序存放, 排序只影响本次查询结果, 不改变内部存储
     QVector<SettingGroupDefinition> result;
     for (const auto& group : groupDefinitions) {
         if (group.pageId == pageId) {
@@ -131,6 +135,7 @@ bool SettingRegistry::registerPage(const QString& pluginId, const QString& pageI
     }
 
     pageDefinitions.append({fullId, title, description, order});
+    // 页面直接对外暴露内部容器, 因此在插入处就重排, 保证 pages() 始终有序
     std::sort(pageDefinitions.begin(), pageDefinitions.end(),
               [](const auto& left, const auto& right) { return left.order < right.order; });
     return true;
@@ -160,9 +165,11 @@ bool SettingRegistry::registerSetting(const QString& pluginId, const QString& gr
                                       const QVector<SettingOption>& options, int order) {
     const QString fullGroupId = namespacedId(pluginId, groupId);
     const QString fullKey = namespacedId(pluginId, key);
+    // 分组必须是已注册的, 同时也能顺带取到所属页面
     const bool groupExists =
         std::any_of(groupDefinitions.cbegin(), groupDefinitions.cend(),
                     [&fullGroupId](const auto& group) { return group.id == fullGroupId; });
+    // 枚举项的默认值必须命中某个候选项, 否则界面控件无法呈现当前取值
     const bool validEnum =
         type != SettingType::Enum ||
         std::any_of(options.cbegin(), options.cend(), [&defaultValue](const auto& option) {
@@ -174,11 +181,13 @@ bool SettingRegistry::registerSetting(const QString& pluginId, const QString& gr
         return false;
     }
 
+    // 先落到配置文件, 失败则整个注册作废, 避免出现"界面有项但读不到值"的状态
     if (settingService == nullptr || !settingService->registerSetting(fullKey, defaultValue)) {
         qWarning() << "unable to register setting in service:" << fullKey;
         return false;
     }
 
+    // 取所属页面 id 一并存入定义, 方便设置界面按页检索(groupExists 已保证迭代器有效)
     const auto group =
         std::find_if(groupDefinitions.cbegin(), groupDefinitions.cend(),
                      [&fullGroupId](const auto& value) { return value.id == fullGroupId; });
@@ -192,6 +201,7 @@ QString SettingRegistry::namespacedId(const QString& pluginId, const QString& lo
 }
 
 bool SettingRegistry::canRegister(const QString& pluginId, const QString& localId) const {
+    // 服务未就绪时注册会被静默丢弃, 因此必须在注册阶段就拦住
     return !sealed && validIdentifier(pluginId) && validIdentifier(localId) &&
            settingService != nullptr && settingService->ready();
 }
