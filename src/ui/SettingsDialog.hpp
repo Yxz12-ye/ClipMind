@@ -40,14 +40,17 @@ QVBoxLayout* contentLayout(QWidget* container);
  *
  * 职责边界:
  * - 结构: 页面/分组/设置项全部按 SettingRegistry 的定义动态生成, 除标签页外不做 pageId 分支;
- * - 显示值: 设置项初值只读地取自 SettingService, 之后由外部调用 setSettingValue() 刷新显示;
- *   标签列表完全由外部通过 setTags() 推送, 本类不再持有 SQLService;
+ * - 显示值: 编辑器先用注册时的默认值建好, Controller 在显示前用 setSettingValues() 推入当前值,
+ *   之后靠 setSettingValue() 逐项刷新; 本类不持有 SettingService, 也不读 config;
  * - 用户操作: 一律转成信号交给 Controller, 本类不写 SettingService, 也不增删改标签数据。
  *
  * Controller 侧的典型接法:
  * @code
- * connect(dialog, &SettingsDialog::valueChanged, service, &SettingService::set);
- * connect(dialog, &SettingsDialog::tagAddRequested, controller, &SettingsController::addTag);
+ * dialog.setSettingValues(collectValues(registry->allSettings()));  // 先推当前值
+ * connect(&dialog, &SettingsDialog::valueChanged, service,
+ *         [service](const QString& key, const QVariant& value) { service->set(key, value); });
+ * connect(service, &SettingService::valueChanged, &dialog, &SettingsDialog::setSettingValue);
+ * connect(&dialog, &SettingsDialog::tagAddRequested, controller, &SettingsController::addTag);
  * dialog.setTags(controller->getTags());
  * @endcode
  */
@@ -61,6 +64,8 @@ public:
 public slots:
     // 刷新单个设置项的显示值(只动界面, 不会回发 valueChanged 信号)
     void setSettingValue(const QString& settingId, const QVariant& value);
+    // 批量推入当前值, 用于对话框显示前把 Controller 手里的快照铺到各个编辑器上
+    void setSettingValues(const QHash<QString, QVariant>& values);
     // 用外部给的完整标签列表重建标签页, 这是标签数据进入界面的唯一入口
     void setTags(const QVector<Tag>& tags);
     // 标签操作失败时由 Controller 调用, 提示文案由调用方决定

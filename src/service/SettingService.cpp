@@ -154,11 +154,7 @@ bool SettingService::_register(const QString& key, const QVariant& defaultValue)
     }
 
     _defaultValues.insert(key, defaultValue);
-    _read(key);
-    if (_dirty) {
-        _save();
-    }
-
+    _read(key);  // 缺失或无法还原时会置 _dirty, 由调用方决定何时落盘
     return true;
 }
 
@@ -198,7 +194,31 @@ bool SettingService::_set(const QString& key, const QVariant& value) {
 }
 
 bool SettingService::registerSetting(const QString& key, const QVariant& defaultValue) {
-    return _register(key, defaultValue);
+    if (!_register(key, defaultValue)) {
+        return false;
+    }
+
+    if (_dirty) {
+        _save();
+    }
+
+    return true;
+}
+
+bool SettingService::registerSettings(const QVector<QPair<QString, QVariant>>& defaultValues) {
+    bool allRegistered = true;
+    for (const auto& [key, defaultValue] : defaultValues) {
+        if (!_register(key, defaultValue)) {
+            allRegistered = false;
+        }
+    }
+
+    // 整批只落盘一次: 首次运行时缺键较多, 逐条注册会把配置文件全量重写很多遍
+    if (_dirty) {
+        _save();
+    }
+
+    return allRegistered;
 }
 
 SettingService::SettingService(/* args */) {

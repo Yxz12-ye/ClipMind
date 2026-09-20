@@ -22,7 +22,6 @@
 #include "CustomHead.hpp"
 #include "SettingEditor.hpp"
 #include "service/SettingRegistry.hpp"
-#include "service/SettingService.hpp"
 #include "struct.hpp"
 
 namespace {
@@ -364,12 +363,8 @@ void SettingsDialog::setupUI() {
     connect(head, &CustomHead::moveRequested, this,
             [this](const QPoint& position) { move(position); });
     connect(categories, &QListWidget::currentRowChanged, pages, &QStackedWidget::setCurrentIndex);
-
-    // 显示值同步: Controller 改完值后 SettingService 会发出信号, 这里只负责刷新界面
-    SettingService* service = registry != nullptr ? registry->service() : nullptr;
-    if (service != nullptr) {
-        connect(service, &SettingService::valueChanged, this, &SettingsDialog::setSettingValue);
-    }
+    // 显示值同步由 Controller 负责: SettingService::valueChanged -> setSettingValue()
+    // 本类不持有 SettingService, 只等着被推值
 }
 
 void SettingsDialog::addCategory(const QString& title, QWidget* page) {
@@ -455,10 +450,8 @@ QWidget* SettingsDialog::createTagPage(const QString& title, const QString& brie
 }
 
 SettingEditor* SettingsDialog::createEditor(const SettingDefinition& setting, QWidget* parent) {
-    // 只读取当前值用于显示(读取不属于修改), 没有持久化服务时退回注册时记录的默认值
-    SettingService* service = registry != nullptr ? registry->service() : nullptr;
-    const QVariant currentValue =
-        service != nullptr ? service->get(setting.key) : setting.defaultValue;
+    // 先用注册时的默认值把控件建出来, Controller 会在显示前用 setSettingValues() 覆盖成当前值
+    const QVariant currentValue = setting.defaultValue;
     switch (setting.type) {
     case SettingType::Boolean:
         return new BoolSettingEditor(currentValue.toBool(), parent);
@@ -491,6 +484,12 @@ void SettingsDialog::setSettingValue(const QString& settingId, const QVariant& v
     // SettingEditor::setValue() 内部屏蔽了信号, 所以这里不会回发 valueChanged
     if (SettingEditor* editor = editors.value(settingId, nullptr); editor != nullptr) {
         editor->setValue(value);
+    }
+}
+
+void SettingsDialog::setSettingValues(const QHash<QString, QVariant>& values) {
+    for (auto it = values.constBegin(); it != values.constEnd(); ++it) {
+        setSettingValue(it.key(), it.value());
     }
 }
 

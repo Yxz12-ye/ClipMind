@@ -7,8 +7,10 @@
 #include <QJsonParseError>
 #include <QJsonValue>
 #include <QObject>
+#include <QPair>
 #include <QString>
 #include <QVariant>
+#include <QVector>
 #include <type_traits>
 
 #ifdef Q_OS_WIN
@@ -29,8 +31,9 @@ private:
     void _save();                    // 保存配置文件
     void _read(const QString& key);  // 按注册时的类型还原单个键, 缺失或无法还原时回退到默认值
 
-    bool _register(const QString& key, const QVariant& defaultValue);  // registerSetting 的实现
-    bool _set(const QString& key, const QVariant& value);              // set 的实现
+    bool _register(const QString& key,
+                   const QVariant& defaultValue);          // registerSetting 的实现(只改内存)
+    bool _set(const QString& key, const QVariant& value);  // set 的实现
 
     // 把默认值/新值包装成 QVariant, 可隐式转为 QString 的类型统一按字符串存储
     template <typename T>
@@ -60,12 +63,21 @@ public:
      * @param key 唯一键值
      * @param defaultValue 默认值, 可类型推导
      * @return 注册成功返回`true`, 其他情况返回`false`
+     *
+     * 每次调用都会在需要时把配置文件整体写回一遍, 批量注册请用 registerSettings()。
      */
     template <typename T>
     bool registerSetting(const QString& key, const T& defaultValue) {
-        return _register(key, _toVariant(defaultValue));
+        return registerSetting(key, _toVariant(defaultValue));
     }
     bool registerSetting(const QString& key, const QVariant& defaultValue);
+    /**
+     * @brief 批量注册设置项, 语义与逐条 registerSetting() 相同, 但只在整个批次结束时落盘一次
+     * @param defaultValues 键与默认值列表, 按给定顺序注册
+     * @return 全部注册成功返回`true`; 任一项被拒绝时返回`false`(被拒绝的项会单独打印警告,
+     *         其余项仍然注册成功), 落盘失败不体现在返回值里
+     */
+    bool registerSettings(const QVector<QPair<QString, QVariant>>& defaultValues);
     /**
      * @brief 修改已注册的键的值, 类型需与注册时的默认值兼容, 成功后立即写回配置文件
      * @param key 唯一键值

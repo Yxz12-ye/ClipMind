@@ -13,7 +13,7 @@
 #include <QStandardItem>
 #include <QStringList>
 
-#include "SettingsDialog.hpp"
+#include "controller/SettingsController.hpp"
 #include "service/SettingRegistry.hpp"
 #include "service/SettingService.hpp"
 
@@ -344,8 +344,9 @@ MainWindow::MainWindow()
       trayMenu(this),
       trayIcon(this),
       controller(new UIController(this)),
-      settingService(SettingService::instance()),
-      settingRegistry(new SettingRegistry(settingService, this)) {
+      settingRegistry(new SettingRegistry(this)),
+      settingsController(new SettingsController(settingRegistry, controller->sqlService(),
+                                                SettingService::instance(), this)) {
     setWindowFlag(Qt::FramelessWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
     setFixedSize(360, 400);
@@ -375,9 +376,12 @@ MainWindow::MainWindow()
     // Plugin modules register their settings before the registry is sealed.
     settingRegistry->seal();
 
-    hideAfterPaste = settingService->get(QStringLiteral("core/hideAfterPaste")).toBool();
-    showTrayIcon = settingService->get(QStringLiteral("core/showTrayIcon")).toBool();
-    connect(settingService, &SettingService::valueChanged, this,
+    // 提交注册信息: 注册阶段只收集定义, 默认值到这里才写进 SettingService, 之后才能读值
+    settingsController->commitDefinitions();
+
+    hideAfterPaste = settingsController->value(QStringLiteral("core/hideAfterPaste")).toBool();
+    showTrayIcon = settingsController->value(QStringLiteral("core/showTrayIcon")).toBool();
+    connect(settingsController, &SettingsController::settingValueChanged, this,
             [this](const QString& key, const QVariant& value) {
                 if (key == QStringLiteral("core/hideAfterPaste")) {
                     hideAfterPaste = value.toBool();
@@ -515,12 +519,11 @@ void MainWindow::hideWindow() {
 
 void MainWindow::openSettings() {
     settingsDialogOpen = true;
-    SettingsDialog dialog(controller->sqlService(), settingRegistry, this);
-    dialog.exec();
+    // 对话框的创建、推值与信号串接都交给 SettingsController
+    settingsController->openDialog(this);
     settingsDialogOpen = false;
 
-    hideAfterPaste = settingService->get(QStringLiteral("core/hideAfterPaste")).toBool();
-    showTrayIcon = settingService->get(QStringLiteral("core/showTrayIcon")).toBool();
+    // hideAfterPaste / showTrayIcon 由 settingValueChanged 跟着值变化同步, 这里不用再读一次
     trayIcon.setVisible(showTrayIcon);
 
     // 标签设置可能已变更, 刷新主窗口标签栏与内容列表

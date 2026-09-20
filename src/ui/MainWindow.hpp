@@ -17,7 +17,7 @@
 
 class QCloseEvent;
 class SettingRegistry;
-class SettingService;
+class SettingsController;
 
 class MainWindow : public QMainWindow {
 private:
@@ -60,8 +60,8 @@ private:
     QScreen* getGlobalActiveWindowScreen() const;
 
     UIController* controller;
-    SettingService* settingService = nullptr;
     SettingRegistry* settingRegistry = nullptr;
+    SettingsController* settingsController = nullptr;
 
 public:
     MainWindow(/* args */);
