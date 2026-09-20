@@ -1,7 +1,6 @@
 #include "SettingsDialog.hpp"
 
 #include <QBrush>
-#include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -19,11 +18,9 @@
 #include <QStyledItemDelegate>
 #include <QToolButton>
 #include <QVBoxLayout>
-#include <algorithm>
 
 #include "CustomHead.hpp"
 #include "SettingEditor.hpp"
-#include "service/SQLService.hpp"
 #include "service/SettingRegistry.hpp"
 #include "service/SettingService.hpp"
 #include "struct.hpp"
@@ -35,46 +32,6 @@ QLabel* createLabel(const QString& text, const QString& objectName, QWidget* par
     label->setObjectName(objectName);
     label->setWordWrap(true);
     return label;
-}
-
-QWidget* createSettingRow(const QString& title, const QString& description, QWidget* control,
-                          QWidget* parent) {
-    auto* row = new QWidget(parent);
-    row->setObjectName("settingsRow");
-    auto* layout = new QHBoxLayout(row);
-    layout->setContentsMargins(16, 12, 16, 12);
-    layout->setSpacing(16);
-
-    auto* textLayout = new QVBoxLayout;
-    textLayout->setContentsMargins(0, 0, 0, 0);
-    textLayout->setSpacing(3);
-    textLayout->addWidget(createLabel(title, "settingsItemTitle", row));
-    textLayout->addWidget(createLabel(description, "settingsItemDescription", row));
-
-    layout->addLayout(textLayout, 1);
-    layout->addWidget(control, 0, Qt::AlignVCenter);
-    return row;
-}
-
-QWidget* createPage(const QString& title, const QString& description, QWidget* parent) {
-    auto* page = new QWidget(parent);
-    auto* layout = new QVBoxLayout(page);
-    layout->setContentsMargins(28, 24, 28, 28);
-    layout->setSpacing(8);
-    layout->addWidget(createLabel(title, "settingsPageTitle", page));
-    layout->addWidget(createLabel(description, "settingsPageDescription", page));
-    layout->addSpacing(16);
-    return page;
-}
-
-QWidget* createSection(const QString& title, QWidget* parent) {
-    auto* section = new QFrame(parent);
-    section->setObjectName("settingsSection");
-    auto* layout = new QVBoxLayout(section);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(0);
-    layout->addWidget(createLabel(title, "settingsSectionTitle", section));
-    return section;
 }
 
 QString modeName(SearchMode mode) {
@@ -273,10 +230,72 @@ enum TagDataRole {
     TagSystemRole,
 };
 
+// 标签页不受注册服务约束, 这个 id 只用于跳过注册表里的同名页与生成 objectName
+const QString kTagPageId = QStringLiteral("core/tags");
+const QString kTagPageTitle = QStringLiteral("标签管理");
+const QString kTagPageBrief = QStringLiteral("标签显示与自动匹配顺序");
+
 }  // namespace
 
-SettingsDialog::SettingsDialog(SQLService* service, SettingRegistry* registry, QWidget* parent)
-    : QDialog(parent), service(service), registry(registry) {
+namespace WidgetFactory {
+
+QVBoxLayout* contentLayout(QWidget* container) {
+    return container != nullptr ? qobject_cast<QVBoxLayout*>(container->layout()) : nullptr;
+}
+
+QWidget* createPage(const QString& pageId, QWidget* parent, const QString& title,
+                    const QString& brief) {
+    auto* page = new QWidget(parent);
+    // `/` 在样式表选择器里要转义, 统一换成 `-`, 页面样式可以写成 #settingsPage-core-tags
+    QString idSuffix = pageId;
+    idSuffix.replace(QLatin1Char('/'), QLatin1Char('-'));
+    page->setObjectName(QStringLiteral("settingsPage-") + idSuffix);
+
+    auto* layout = new QVBoxLayout(page);
+    layout->setContentsMargins(28, 24, 28, 28);
+    layout->setSpacing(8);
+    layout->addWidget(createLabel(title, "settingsPageTitle", page));
+    layout->addWidget(createLabel(brief, "settingsPageDescription", page));
+    layout->addSpacing(16);
+    return page;
+}
+
+QWidget* createGroup(const QString& groupId, QWidget* parent, const QString& title) {
+    // 样式表按 objectName=settingsSection 配色, 所以分组 id 只能挂到动态属性上
+    auto* group = new QFrame(parent);
+    group->setObjectName("settingsSection");
+    group->setProperty("groupId", groupId);
+
+    auto* layout = new QVBoxLayout(group);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(0);
+    layout->addWidget(createLabel(title, "settingsSectionTitle", group));
+    return group;
+}
+
+QWidget* createRow(const QString& title, const QString& description, QWidget* control,
+                   QWidget* parent) {
+    auto* row = new QWidget(parent);
+    row->setObjectName("settingsRow");
+    auto* layout = new QHBoxLayout(row);
+    layout->setContentsMargins(16, 12, 16, 12);
+    layout->setSpacing(16);
+
+    auto* textLayout = new QVBoxLayout;
+    textLayout->setContentsMargins(0, 0, 0, 0);
+    textLayout->setSpacing(3);
+    textLayout->addWidget(createLabel(title, "settingsItemTitle", row));
+    textLayout->addWidget(createLabel(description, "settingsItemDescription", row));
+
+    layout->addLayout(textLayout, 1);
+    layout->addWidget(control, 0, Qt::AlignVCenter);
+    return row;
+}
+
+}  // namespace WidgetFactory
+
+SettingsDialog::SettingsDialog(SettingRegistry* registry, QWidget* parent)
+    : QDialog(parent), registry(registry) {
     setWindowFlag(Qt::FramelessWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
     setModal(true);
@@ -297,41 +316,45 @@ void SettingsDialog::setupUI() {
     auto* panelLayout = new QVBoxLayout(panel);
     panelLayout->setContentsMargins(0, 0, 0, 0);
     panelLayout->setSpacing(0);
-
+    // 自定义窗口头
     head = new CustomHead(QStringLiteral("设置"), false, panel);
     panelLayout->addWidget(head);
-
+    // 设置容器及横向布局
     auto* body = new QWidget(panel);
     auto* bodyLayout = new QHBoxLayout(body);
     bodyLayout->setContentsMargins(16, 4, 16, 16);
     bodyLayout->setSpacing(16);
-
+    // 左侧Tab
     categories = new QListWidget(body);
     categories->setObjectName("settingsCategories");
     categories->setFixedWidth(152);
     categories->setFrameShape(QFrame::NoFrame);
     categories->setFocusPolicy(Qt::NoFocus);
-
+    // 堆叠具体的设置页面
     pages = new QStackedWidget(body);
     pages->setObjectName("settingsPages");
 
+    // 无需根据pageId去细分, 只要把页面文本交给工厂即可, 除了Tag标签, 其余都走同一套逻辑
+    bool tagPageCreated = false;
     if (registry != nullptr) {
-        for (const auto& page : registry->pages()) {
-            categories->addItem(page.title);
-            if (page.id == QStringLiteral("core/tags")) {
-                pages->addWidget(createTagPage(pages));
-            } else if (page.id == QStringLiteral("core/shortcuts")) {
-                pages->addWidget(createShortcutPage(pages));
-            } else if (page.id == QStringLiteral("core/appearance")) {
-                pages->addWidget(createAppearancePage(pages));
-            } else if (page.id == QStringLiteral("core/about")) {
-                pages->addWidget(createAboutPage(pages));
-            } else {
-                pages->addWidget(createStandardPage(page.id, pages));
+        for (const SettingPageDefinition& definition : registry->pages()) {
+            if (definition.id == kTagPageId) {
+                // 标签页自绘(标签数据由外部推送), 只沿用注册表里的标题文案
+                addCategory(definition.title,
+                            createTagPage(definition.title, definition.description));
+                tagPageCreated = true;
+                continue;
             }
+            addCategory(definition.title, createStandardPage(definition));
         }
     }
-    categories->setCurrentRow(0);
+    if (!tagPageCreated) {
+        // 注册表没有登记标签页时, 也要保留标签管理入口
+        addCategory(kTagPageTitle, createTagPage(kTagPageTitle, kTagPageBrief));
+    }
+    if (categories->count() > 0) {
+        categories->setCurrentRow(0);
+    }
 
     bodyLayout->addWidget(categories);
     bodyLayout->addWidget(pages, 1);
@@ -341,35 +364,33 @@ void SettingsDialog::setupUI() {
     connect(head, &CustomHead::moveRequested, this,
             [this](const QPoint& position) { move(position); });
     connect(categories, &QListWidget::currentRowChanged, pages, &QStackedWidget::setCurrentIndex);
-    if (registry != nullptr && registry->service() != nullptr) {
-        connect(registry->service(), &SettingService::valueChanged, this,
-                [this](const QString& key, const QVariant& value) {
-                    if (auto* editor = editors.value(key, nullptr); editor != nullptr) {
-                        editor->setValue(value);
-                    }
-                });
+
+    // 显示值同步: Controller 改完值后 SettingService 会发出信号, 这里只负责刷新界面
+    SettingService* service = registry != nullptr ? registry->service() : nullptr;
+    if (service != nullptr) {
+        connect(service, &SettingService::valueChanged, this, &SettingsDialog::setSettingValue);
     }
 }
 
-QWidget* SettingsDialog::createStandardPage(const QString& pageId, QWidget* parent) {
-    const auto pageIt = std::find_if(registry->pages().cbegin(), registry->pages().cend(),
-                                     [&pageId](const auto& page) { return page.id == pageId; });
-    if (pageIt == registry->pages().cend()) {
-        return new QWidget(parent);
-    }
+void SettingsDialog::addCategory(const QString& title, QWidget* page) {
+    categories->addItem(title);
+    pages->addWidget(page);
+}
 
-    auto* page = createPage(pageIt->title, pageIt->description, parent);
-    auto* pageLayout = qobject_cast<QVBoxLayout*>(page->layout());
-    for (const auto& group : registry->groups(pageId)) {
-        auto* section = createSection(group.title, page);
-        auto* sectionLayout = qobject_cast<QVBoxLayout*>(section->layout());
-        for (const auto& setting : registry->settings(group.id)) {
-            auto* editor = createEditor(setting, section);
+QWidget* SettingsDialog::createStandardPage(const SettingPageDefinition& definition) {
+    QWidget* page =
+        WidgetFactory::createPage(definition.id, pages, definition.title, definition.description);
+    QVBoxLayout* pageLayout = WidgetFactory::contentLayout(page);
+    for (const SettingGroupDefinition& group : registry->groups(definition.id)) {
+        QWidget* section = WidgetFactory::createGroup(group.id, page, group.title);
+        QVBoxLayout* sectionLayout = WidgetFactory::contentLayout(section);
+        for (const SettingDefinition& setting : registry->settings(group.id)) {
+            SettingEditor* editor = createEditor(setting, section);
             if (editor == nullptr) {
-                continue;
+                continue;  // 不认识的类型直接跳过该行
             }
             sectionLayout->addWidget(
-                createSettingRow(setting.title, setting.description, editor, section));
+                WidgetFactory::createRow(setting.title, setting.description, editor, section));
             bindEditor(setting, editor);
         }
         pageLayout->addWidget(section);
@@ -378,10 +399,10 @@ QWidget* SettingsDialog::createStandardPage(const QString& pageId, QWidget* pare
     return page;
 }
 
-QWidget* SettingsDialog::createTagPage(QWidget* parent) {
-    auto* page =
-        createPage(QStringLiteral("标签管理"), QStringLiteral("标签显示与自动匹配顺序"), parent);
-    auto* tagLayout = qobject_cast<QVBoxLayout*>(page->layout());
+QWidget* SettingsDialog::createTagPage(const QString& title, const QString& brief) {
+    QWidget* page = WidgetFactory::createPage(kTagPageId, pages, title, brief);
+    QVBoxLayout* pageLayout = WidgetFactory::contentLayout(page);
+
     auto* tagToolbar = new QHBoxLayout;
     tagToolbar->setContentsMargins(0, 0, 0, 0);
     auto* systemTagHint =
@@ -404,7 +425,7 @@ QWidget* SettingsDialog::createTagPage(QWidget* parent) {
     tagToolbar->addWidget(moveUpButton);
     tagToolbar->addWidget(moveDownButton);
     tagToolbar->addWidget(deleteTagButton);
-    tagLayout->addLayout(tagToolbar);
+    pageLayout->addLayout(tagToolbar);
 
     tagList = new QListWidget(page);
     tagList->setObjectName("tagManagerList");
@@ -413,21 +434,18 @@ QWidget* SettingsDialog::createTagPage(QWidget* parent) {
     tagList->setSelectionMode(QAbstractItemView::SingleSelection);
     tagList->setDragDropMode(QAbstractItemView::NoDragDrop);
     tagList->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
-    tagLayout->addWidget(tagList, 1);
+    pageLayout->addWidget(tagList, 1);
 
-    for (const Tag& tag : service->getTags()) {
-        addTagItem(tag);
-    }
-
-    connect(addTagButton, &QPushButton::clicked, this, [this] { addTag(); });
+    // 所有交互都只发信号, 列表内容等 Controller 调 setTags() 回推
+    connect(addTagButton, &QPushButton::clicked, this, &SettingsDialog::requestTagAdd);
     connect(moveUpButton, &QToolButton::clicked, this,
-            [this] { moveTagItem(tagList->currentItem(), -1); });
+            [this] { requestTagMove(tagList->currentItem(), -1); });
     connect(moveDownButton, &QToolButton::clicked, this,
-            [this] { moveTagItem(tagList->currentItem(), 1); });
+            [this] { requestTagMove(tagList->currentItem(), 1); });
     connect(deleteTagButton, &QPushButton::clicked, this,
-            [this] { removeTagItem(tagList->currentItem()); });
+            [this] { requestTagDelete(tagList->currentItem()); });
     connect(tagList, &QListWidget::itemDoubleClicked, this,
-            [this](QListWidgetItem* item) { editTag(item); });
+            [this](QListWidgetItem* item) { requestTagEdit(item); });
     connect(tagList, &QListWidget::currentItemChanged, this,
             [deleteTagButton](QListWidgetItem* current, QListWidgetItem*) {
                 deleteTagButton->setEnabled(current != nullptr &&
@@ -436,49 +454,11 @@ QWidget* SettingsDialog::createTagPage(QWidget* parent) {
     return page;
 }
 
-QWidget* SettingsDialog::createShortcutPage(QWidget* parent) {
-    auto* page = createPage(QStringLiteral("快捷键"), QStringLiteral("快速呼出 ClipMind"), parent);
-    auto* pageLayout = qobject_cast<QVBoxLayout*>(page->layout());
-    auto* section = createSection(QStringLiteral("全局快捷键"), page);
-    auto* sectionLayout = qobject_cast<QVBoxLayout*>(section->layout());
-    sectionLayout->addWidget(createSettingRow(
-        QStringLiteral("呼出窗口"), QStringLiteral("当前使用的全局快捷键"),
-        createLabel(QStringLiteral("Alt + V"), "settingsShortcutValue", section), section));
-    pageLayout->addWidget(section);
-    pageLayout->addStretch();
-    return page;
-}
-
-QWidget* SettingsDialog::createAppearancePage(QWidget* parent) {
-    auto* page =
-        createPage(QStringLiteral("外观"), QStringLiteral("界面随系统主题自动调整"), parent);
-    auto* pageLayout = qobject_cast<QVBoxLayout*>(page->layout());
-    auto* section = createSection(QStringLiteral("主题"), page);
-    auto* sectionLayout = qobject_cast<QVBoxLayout*>(section->layout());
-    sectionLayout->addWidget(createSettingRow(
-        QStringLiteral("跟随系统主题"), QStringLiteral("根据系统明暗模式调整界面颜色"),
-        createLabel(QStringLiteral("已启用"), "settingsShortcutValue", section), section));
-    pageLayout->addWidget(section);
-    pageLayout->addStretch();
-    return page;
-}
-
-QWidget* SettingsDialog::createAboutPage(QWidget* parent) {
-    auto* page =
-        createPage(QStringLiteral("关于"), QStringLiteral("ClipMind 剪贴板管理器"), parent);
-    auto* pageLayout = qobject_cast<QVBoxLayout*>(page->layout());
-    auto* section = createSection(QStringLiteral("应用信息"), page);
-    auto* sectionLayout = qobject_cast<QVBoxLayout*>(section->layout());
-    sectionLayout->addWidget(createSettingRow(
-        QStringLiteral("版本"), QStringLiteral("当前安装的 ClipMind 版本"),
-        createLabel(QStringLiteral("0.1.0"), "settingsShortcutValue", section), section));
-    pageLayout->addWidget(section);
-    pageLayout->addStretch();
-    return page;
-}
-
 SettingEditor* SettingsDialog::createEditor(const SettingDefinition& setting, QWidget* parent) {
-    const QVariant currentValue = registry->service()->get(setting.key);
+    // 只读取当前值用于显示(读取不属于修改), 没有持久化服务时退回注册时记录的默认值
+    SettingService* service = registry != nullptr ? registry->service() : nullptr;
+    const QVariant currentValue =
+        service != nullptr ? service->get(setting.key) : setting.defaultValue;
     switch (setting.type) {
     case SettingType::Boolean:
         return new BoolSettingEditor(currentValue.toBool(), parent);
@@ -501,38 +481,51 @@ void SettingsDialog::bindEditor(const SettingDefinition& setting, SettingEditor*
     editors.insert(setting.key, editor);
     connect(editor, &SettingEditor::valueChanged, this,
             [this, key = setting.key](const QVariant& value) {
-                if (registry->service() != nullptr) {
-                    registry->service()->set(key, value);
-                }
+                // 不再通过registry直接更改键值, 而是抛给Controller去改
+                // (本质上View层就不应该直接去改变值, 只要负责好界面和事件就行)
+                emit valueChanged(key, value);
             });
 }
 
-void SettingsDialog::addTag() {
-    TagEditorDialog dialog(this);
-    if (dialog.exec() != QDialog::Accepted) {
+void SettingsDialog::setSettingValue(const QString& settingId, const QVariant& value) {
+    // SettingEditor::setValue() 内部屏蔽了信号, 所以这里不会回发 valueChanged
+    if (SettingEditor* editor = editors.value(settingId, nullptr); editor != nullptr) {
+        editor->setValue(value);
+    }
+}
+
+void SettingsDialog::setTags(const QVector<Tag>& tags) {
+    if (tagList == nullptr) {
         return;
     }
 
-    const Tag tag = dialog.tag();
-    if (containsTag(tag.tagName)) {
-        QMessageBox::warning(this, QStringLiteral("添加标签"),
-                             QStringLiteral("已存在同名标签，请更换名称"));
-        return;
+    // 尽量保住当前选中项, 方便连续编辑
+    const QString selectedName = tagList->currentItem() != nullptr
+                                     ? tagList->currentItem()->data(TagNameRole).toString()
+                                     : QString();
+
+    tagList->clear();
+    for (const Tag& tag : tags) {
+        addTagItem(tag);
     }
 
-    const QString error = service->save(tag);
-    if (!error.isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("添加标签"), error);
-        return;
+    if (!selectedName.isEmpty()) {
+        for (int row = 0; row < tagList->count(); ++row) {
+            if (tagList->item(row)->data(TagNameRole).toString() == selectedName) {
+                tagList->setCurrentRow(row);
+                break;
+            }
+        }
     }
+}
 
-    addTagItem(tag);
+void SettingsDialog::showTagError(const QString& title, const QString& message) {
+    QMessageBox::warning(this, title, message);
 }
 
 void SettingsDialog::addTagItem(const Tag& tag) {
     auto* item = new QListWidgetItem(tagList);
     updateTagItem(item, tag);
-    tagList->setCurrentItem(item);
 }
 
 void SettingsDialog::updateTagItem(QListWidgetItem* item, const Tag& tag) {
@@ -551,7 +544,24 @@ void SettingsDialog::updateTagItem(QListWidgetItem* item, const Tag& tag) {
     item->setSizeHint(QSize(0, 34));
 }
 
-void SettingsDialog::editTag(QListWidgetItem* item) {
+Tag SettingsDialog::tagFromItem(QListWidgetItem* item) const {
+    return Tag(item->data(TagNameRole).toString(), item->data(TagRuleRole).toString(),
+               static_cast<SearchMode>(item->data(TagModeRole).toInt()),
+               item->data(TagBackgroundRole).value<QColor>(),
+               item->data(TagForegroundRole).value<QColor>(), item->data(TagSystemRole).toBool());
+}
+
+void SettingsDialog::requestTagAdd() {
+    TagEditorDialog dialog(this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    // 重名、落库失败都交给 Controller 判断, 需要提示时调用 showTagError()
+    emit tagAddRequested(dialog.tag());
+}
+
+void SettingsDialog::requestTagEdit(QListWidgetItem* item) {
     if (item == nullptr || item->data(TagSystemRole).toBool()) {
         return;
     }
@@ -562,54 +572,18 @@ void SettingsDialog::editTag(QListWidgetItem* item) {
         return;
     }
 
-    const Tag updated = dialog.tag();
-    if (updated.tagName != original.tagName && containsTag(updated.tagName)) {
-        QMessageBox::warning(this, QStringLiteral("编辑标签"),
-                             QStringLiteral("已存在同名标签，请更换名称"));
-        return;
-    }
-
-    if (!service->updateTag(original.tagName, updated)) {
-        QMessageBox::warning(this, QStringLiteral("编辑标签"),
-                             QStringLiteral("保存失败，请稍后重试"));
-        return;
-    }
-
-    updateTagItem(item, updated);
+    emit tagUpdateRequested(original.tagName, dialog.tag());
 }
 
-Tag SettingsDialog::tagFromItem(QListWidgetItem* item) const {
-    return Tag(item->data(TagNameRole).toString(), item->data(TagRuleRole).toString(),
-               static_cast<SearchMode>(item->data(TagModeRole).toInt()),
-               item->data(TagBackgroundRole).value<QColor>(),
-               item->data(TagForegroundRole).value<QColor>(), item->data(TagSystemRole).toBool());
-}
-
-bool SettingsDialog::containsTag(const QString& name) const {
-    for (int i = 0; i < tagList->count(); ++i) {
-        if (tagList->item(i)->data(TagNameRole).toString() == name) {
-            return true;
-        }
-    }
-    return false;
-}
-
-void SettingsDialog::removeTagItem(QListWidgetItem* item) {
+void SettingsDialog::requestTagDelete(QListWidgetItem* item) {
     if (item == nullptr || item->data(TagSystemRole).toBool()) {
         return;
     }
 
-    const QString tagName = item->data(TagNameRole).toString();
-    if (!service->deleteTag(tagName)) {
-        QMessageBox::warning(this, QStringLiteral("删除标签"),
-                             QStringLiteral("删除失败，请稍后重试"));
-        return;
-    }
-
-    delete tagList->takeItem(tagList->row(item));
+    emit tagDeleteRequested(item->data(TagNameRole).toString());
 }
 
-void SettingsDialog::moveTagItem(QListWidgetItem* item, int offset) {
+void SettingsDialog::requestTagMove(QListWidgetItem* item, int offset) {
     if (item == nullptr) {
         return;
     }
@@ -620,21 +594,14 @@ void SettingsDialog::moveTagItem(QListWidgetItem* item, int offset) {
         return;
     }
 
-    QListWidgetItem* movedItem = tagList->takeItem(currentRow);
-    tagList->insertItem(targetRow, movedItem);
-    tagList->setCurrentItem(movedItem);
-
+    // 只上报用户期望的顺序, 界面上不动手; Controller 存好后用 setTags() 回推, 失败则原样推回
     QStringList orderedNames;
-    for (int i = 0; i < tagList->count(); ++i) {
-        orderedNames.append(tagList->item(i)->data(TagNameRole).toString());
+    orderedNames.reserve(tagList->count());
+    for (int row = 0; row < tagList->count(); ++row) {
+        orderedNames.append(tagList->item(row)->data(TagNameRole).toString());
     }
-    if (!service->reorderTags(orderedNames)) {
-        QListWidgetItem* rollbackItem = tagList->takeItem(tagList->row(movedItem));
-        tagList->insertItem(currentRow, rollbackItem);
-        tagList->setCurrentItem(rollbackItem);
-        QMessageBox::warning(this, QStringLiteral("排序标签"),
-                             QStringLiteral("排序保存失败，已恢复原顺序"));
-    }
+    orderedNames.move(currentRow, targetRow);
+    emit tagReorderRequested(orderedNames);
 }
 
 void SettingsDialog::applyTheme() {
