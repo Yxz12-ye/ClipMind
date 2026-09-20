@@ -8,12 +8,14 @@
 #include <QVBoxLayout>
 #include <QWidget>
 #include <QtGlobal>
+#include <memory>
 
 #include "./ContentListWidget.hpp"
 #include "./CustomHead.hpp"
 #include "./SearchWidget.hpp"
 #include "./TagWidget.hpp"
 #include "controller/UIController.hpp"
+#include "service/WindowPositioner.hpp"
 
 class QCloseEvent;
 class SettingRegistry;
@@ -51,17 +53,14 @@ private:
     void setupGlobalHotkey();
     void teardownGlobalHotkey();
     void openSettings();
-    QPoint resolveWindowPosition(quintptr caretThreadId) const;
-    void showWindow(quintptr caretThreadId = 0);
+    void showWindow();
     void hideWindow();
     void exitFromTray();
-    static QPoint adjustWindowPositionToScreen(const QPoint& cursorPos, const QSize& windowSize,
-                                               const QRect& availableGeometry);
-    QScreen* getGlobalActiveWindowScreen() const;
 
     UIController* controller;
     SettingRegistry* settingRegistry = nullptr;
     SettingsController* settingsController = nullptr;
+    std::unique_ptr<AbstractWindowPositioner> windowPositioner;
 
 public:
     MainWindow(/* args */);
