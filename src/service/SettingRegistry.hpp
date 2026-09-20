@@ -5,8 +5,6 @@
 #include <QVariant>
 #include <QVector>
 
-class SettingService;
-
 // 设置项的取值类型, 决定设置页用哪种编辑控件, 也决定默认值如何被 SettingService 还原
 enum class SettingType {
     Boolean,  // 复选框
@@ -58,9 +56,11 @@ class SettingRegistry;
  * 该对象把 `pluginId` 与调用方绑定, 因此各 register* 方法不必重复传入插件名;
  * 其内部只转发到 SettingRegistry, 不持有任何定义数据, 可以按值自由拷贝。
  *
- * 所有方法都返回注册是否被接受: 传入的 id 非法、标题为空、重名、
- * registry 已 seal 或 SettingService 未就绪时返回 `false` 并打印警告,
- * 调用方可据此判断插件设置是否真正生效。
+ * 所有方法都返回注册是否被接受: 传入的 id 非法、标题为空、父级不存在、重名或
+ * registry 已 seal 时返回 `false` 并打印警告。
+ *
+ * 注意返回 `true` 只代表"定义被接受", 不代表值已经可读: 默认值要等所有注册流程
+ * 结束后由 Controller 统一提交给 SettingService, 插件设置才算真正生效。
  */
 class PluginSettings {
 public:
@@ -92,7 +92,7 @@ public:
      * @param key 设置的局部键名, 最终键为 `pluginId/key`
      * @param title 设置项标题, 不能为空
      * @param description 设置项说明
-     * @param defaultValue 默认值, 同时作为 SettingService 中该键的初始值
+     * @param defaultValue 默认值, 提交给 SettingService 时作为该键的初始值
      * @param order 同一分组内的排序值, 越小越靠前
      * @return 注册成功返回 `true`
      */
@@ -130,19 +130,27 @@ private:
 };
 
 /**
- * @brief 插件设置的元数据中心, 统一收拢页面/分组/设置项的定义并转发持久化
+ * @brief 插件设置的元数据中心, 只负责收集定义并做结构校验
  *
  * 各插件通过 registerPlugin() 取得句柄后注册自己的界面结构, 设置对话框只读取本类
- * 提供的定义来动态生成界面; 真正负责读写 config.json 的是 SettingService, 本类在
- * 注册设置项时把默认值转交给它, 并复用其信号做界面同步。
+ * 提供的定义来动态生成界面。本类不接触持久化: 它不持有 SettingService, 注册过程
+ * 也没有任何副作用, 因此可以脱离配置文件单独构造和测试。
  *
- * 典型流程(见 MainWindow 构造):
+ * 注册完成后定义集合是冻结的(seal), 之后由 Controller 用 allSettings() 取到全部
+ * 设置项, 逐条调用 SettingService::registerSetting() 把默认值提交上去——"提交"是
+ * 显式的一步, 顺序必须在任何 get()/建界面之前, 否则会读到未注册的空值。
+ *
+ * 典型流程(见 MainWindow 构造 / SettingsController):
  * @code
  * auto core = registry->registerPlugin(QStringLiteral("core"));
  * core.registerPage(QStringLiteral("general"), ...);
  * core.registerGroup(QStringLiteral("general"), QStringLiteral("behavior"), ...);
  * core.registerBool(QStringLiteral("behavior"), QStringLiteral("hideAfterPaste"), ...);
- * registry->seal();  // 所有插件注册完毕后封盘
+ * registry->seal();  // ① 所有插件注册完毕后封盘
+ *
+ * for (const SettingDefinition& def : registry->allSettings()) {  // ② 手动提交
+ *     service->registerSetting(def.key, def.defaultValue);
+ * }
  * @endcode
  *
  * 线程约束: 与 SettingService 一样只在 GUI 线程使用。
@@ -153,10 +161,9 @@ class SettingRegistry : public QObject {
 public:
     /**
      * @brief 构造注册中心
-     * @param service 提供持久化能力的服务, 可为空(此时所有注册都会失败)
      * @param parent Qt 父对象
      */
-    explicit SettingRegistry(SettingService* service, QObject* parent = nullptr);
+    explicit SettingRegistry(QObject* parent = nullptr);
 
     /**
      * @brief 取得某个插件的注册句柄
@@ -193,12 +200,14 @@ public:
      * @return 该分组下的设置项副本, 已按 `order` 升序排列; 分组不存在时返回空列表
      */
     QVector<SettingDefinition> settings(const QString& groupId) const;
-
     /**
-     * @brief 获取底层设置服务, 供设置界面直接读写具体取值
-     * @return 构造时传入的服务指针, 可能为空
+     * @brief 获取全部设置项, 不分页面与分组
+     * @return 内部容器的常量引用, 注意其生命周期与本对象绑定
+     *
+     * 提交默认值、整体自检这类需要遍历所有设置项的场景走这里, 免得按
+     * pages() -> groups() -> settings() 递归而漏掉某一层。
      */
-    SettingService* service() const;
+    const QVector<SettingDefinition>& allSettings() const;
 
 private:
     friend class PluginSettings;
@@ -215,10 +224,9 @@ private:
 
     // 把插件局部 id 拼接为全局唯一的 `pluginId/localId`
     QString namespacedId(const QString& pluginId, const QString& localId) const;
-    // 注册前置条件: 未封盘、id 合法、设置服务已就绪
+    // 注册前置条件: 未封盘、id 合法(与持久化服务是否就绪无关)
     bool canRegister(const QString& pluginId, const QString& localId) const;
 
-    SettingService* settingService;
     QVector<SettingPageDefinition> pageDefinitions;    // 按 order 升序维护, 有新增即重排
     QVector<SettingGroupDefinition> groupDefinitions;  // 按注册顺序存放, 查询时再排序
     QVector<SettingDefinition> settingDefinitions;     // 同上

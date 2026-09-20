@@ -4,8 +4,6 @@
 #include <algorithm>
 #include <utility>
 
-#include "SettingService.hpp"
-
 namespace {
 
 // 局部 id 不能为空, 且不允许含 `/`: 斜杠是命名空间分隔符, 出现即无法与插件名区分
@@ -71,8 +69,7 @@ bool PluginSettings::registerEnum(const QString& groupId, const QString& key, co
                                      defaultValue, options, order);
 }
 
-SettingRegistry::SettingRegistry(SettingService* service, QObject* parent)
-    : QObject(parent), settingService(service) {}
+SettingRegistry::SettingRegistry(QObject* parent) : QObject(parent) {}
 
 PluginSettings SettingRegistry::registerPlugin(const QString& pluginId) {
     // 返回空句柄而非报错: registry 为空时其成员方法都会直接返回 false
@@ -121,8 +118,8 @@ QVector<SettingDefinition> SettingRegistry::settings(const QString& groupId) con
     return result;
 }
 
-SettingService* SettingRegistry::service() const {
-    return settingService;
+const QVector<SettingDefinition>& SettingRegistry::allSettings() const {
+    return settingDefinitions;
 }
 
 bool SettingRegistry::registerPage(const QString& pluginId, const QString& pageId,
@@ -181,11 +178,8 @@ bool SettingRegistry::registerSetting(const QString& pluginId, const QString& gr
         return false;
     }
 
-    // 先落到配置文件, 失败则整个注册作废, 避免出现"界面有项但读不到值"的状态
-    if (settingService == nullptr || !settingService->registerSetting(fullKey, defaultValue)) {
-        qWarning() << "unable to register setting in service:" << fullKey;
-        return false;
-    }
+    // 这里只收集定义, 不碰持久化: 默认值由 Controller 在所有注册结束后统一提交
+    // (见 SettingRegistry 类注释里的典型流程)
 
     // 取所属页面 id 一并存入定义, 方便设置界面按页检索(groupExists 已保证迭代器有效)
     const auto group =
@@ -201,7 +195,6 @@ QString SettingRegistry::namespacedId(const QString& pluginId, const QString& lo
 }
 
 bool SettingRegistry::canRegister(const QString& pluginId, const QString& localId) const {
-    // 服务未就绪时注册会被静默丢弃, 因此必须在注册阶段就拦住
-    return !sealed && validIdentifier(pluginId) && validIdentifier(localId) &&
-           settingService != nullptr && settingService->ready();
+    // 注册阶段只看定义本身是否合法, 服务是否就绪留给提交阶段判断
+    return !sealed && validIdentifier(pluginId) && validIdentifier(localId);
 }
