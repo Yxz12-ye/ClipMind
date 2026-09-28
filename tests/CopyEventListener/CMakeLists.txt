@@ -11,6 +11,7 @@ set(TARGET_NAME ${PROJECT_NAME}_CopyEventListener_test)
 add_executable(${TARGET_NAME}
     copy_event_listener_test.cpp
     ${CMAKE_SOURCE_DIR}/src/service/CopyEventListener.cpp
+    ${CMAKE_SOURCE_DIR}/src/service/LogService.cpp
 )
 
 target_include_directories(${TARGET_NAME} PRIVATE
@@ -22,6 +23,7 @@ target_link_libraries(${TARGET_NAME} PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
+    spdlog::spdlog
 )
 
 # Windows-specific: CopyEventListener.cpp calls Win32 clipboard APIs
