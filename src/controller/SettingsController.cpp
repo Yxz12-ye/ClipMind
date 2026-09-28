@@ -1,8 +1,8 @@
 #include "SettingsController.hpp"
 
-#include <QDebug>
 #include <QWidget>
 
+#include "service/LogService.hpp"
 #include "service/SQLService.hpp"
 #include "service/SettingRegistry.hpp"
 #include "service/SettingService.hpp"
@@ -31,8 +31,10 @@ void SettingsController::commitDefinitions() {
     }
 
     if (!settingService->registerSettings(defaultValues)) {
-        qWarning() << "commit setting definitions failed, some of" << defaultValues.size()
-                   << "settings are unavailable (see warnings above)";
+        LogService::warn("SettingsController",
+                         "commit setting definitions failed, some of {} settings are unavailable "
+                         "(see warnings above)",
+                         defaultValues.size());
     }
 }
 
@@ -58,7 +60,8 @@ QHash<QString, QVariant> SettingsController::collectValues() const {
 
 void SettingsController::openDialog(QWidget* parent) {
     if (registry == nullptr || sqlService == nullptr || settingService == nullptr) {
-        qWarning() << "settings controller is not fully wired, settings dialog skipped";
+        LogService::warn("SettingsController",
+                         "settings controller is not fully wired, settings dialog skipped");
         return;
     }
 

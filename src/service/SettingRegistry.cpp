@@ -1,8 +1,9 @@
 #include "SettingRegistry.hpp"
 
-#include <QDebug>
 #include <algorithm>
 #include <utility>
+
+#include "LogService.hpp"
 
 namespace {
 
@@ -74,7 +75,7 @@ SettingRegistry::SettingRegistry(QObject* parent) : QObject(parent) {}
 PluginSettings SettingRegistry::registerPlugin(const QString& pluginId) {
     // 返回空句柄而非报错: registry 为空时其成员方法都会直接返回 false
     if (!validIdentifier(pluginId)) {
-        qWarning() << "invalid plugin id:" << pluginId;
+        LogService::warn("SettingRegistry", "invalid plugin id: {}", pluginId);
         return {};
     }
 
@@ -127,7 +128,7 @@ bool SettingRegistry::registerPage(const QString& pluginId, const QString& pageI
     const QString fullId = namespacedId(pluginId, pageId);
     if (!canRegister(pluginId, pageId) || title.trimmed().isEmpty() ||
         containsId(pageDefinitions, fullId)) {
-        qWarning() << "unable to register settings page:" << fullId;
+        LogService::warn("SettingRegistry", "unable to register settings page: {}", fullId);
         return false;
     }
 
@@ -147,7 +148,7 @@ bool SettingRegistry::registerGroup(const QString& pluginId, const QString& page
                     [&fullPageId](const auto& page) { return page.id == fullPageId; });
     if (!canRegister(pluginId, groupId) || title.trimmed().isEmpty() || !pageExists ||
         containsId(groupDefinitions, fullGroupId)) {
-        qWarning() << "unable to register settings group:" << fullGroupId;
+        LogService::warn("SettingRegistry", "unable to register settings group: {}", fullGroupId);
         return false;
     }
 
@@ -174,7 +175,7 @@ bool SettingRegistry::registerSetting(const QString& pluginId, const QString& gr
         });
     if (!canRegister(pluginId, key) || title.trimmed().isEmpty() || !groupExists ||
         containsKey(settingDefinitions, fullKey) || !defaultValue.isValid() || !validEnum) {
-        qWarning() << "unable to register setting:" << fullKey;
+        LogService::warn("SettingRegistry", "unable to register setting: {}", fullKey);
         return false;
     }
 

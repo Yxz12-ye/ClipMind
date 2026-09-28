@@ -1,8 +1,9 @@
 #include "SQLService.hpp"
 
-#include <QDebug>
 #include <QRegularExpression>
 #include <utility>
+
+#include "LogService.hpp"
 
 namespace {
 
@@ -41,7 +42,8 @@ bool SQLService::execute(const char* sql) {
         return true;
     }
 
-    qWarning() << "sqlite exec failed:" << (errMsg != nullptr ? errMsg : sqlite3_errmsg(db));
+    LogService::warn("SQLService", "sqlite exec failed: {}",
+                     errMsg != nullptr ? errMsg : sqlite3_errmsg(db));
     if (errMsg != nullptr) {
         sqlite3_free(errMsg);
     }
@@ -111,7 +113,7 @@ QVector<ContentListItemData> SQLService::searchByTag(sqlite3_int64 tagId, const 
 
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db, sql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) {
-        qWarning() << "prepare searchByTag failed:" << lastError();
+        LogService::warn("SQLService", "prepare searchByTag failed: {}", lastError());
         return results;
     }
 
@@ -139,14 +141,14 @@ bool SQLService::clear(QDateTime time) {
     const char* sql = "DELETE FROM ContentItem WHERE updateTime < ? AND pinned = 0;";
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        qWarning() << "prepare clear failed:" << lastError();
+        LogService::warn("SQLService", "prepare clear failed: {}", lastError());
         return false;
     }
 
     sqlite3_bind_int64(stmt, 1, time.toSecsSinceEpoch());
     const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
     if (!ok) {
-        qWarning() << "clear failed:" << lastError();
+        LogService::warn("SQLService", "clear failed: {}", lastError());
     }
 
     sqlite3_finalize(stmt);
@@ -163,7 +165,7 @@ sqlite3_int64 SQLService::searchTag(const QString& tagName) {
     const int rc =
         sqlite3_bind_text(searchTagStmt, 1, tagNameUtf8.constData(), -1, SQLITE_TRANSIENT);
     if (rc != SQLITE_OK) {
-        qWarning() << "bind searchTag failed:" << lastError();
+        LogService::warn("SQLService", "bind searchTag failed: {}", lastError());
         resetStatement(searchTagStmt);
         return -2;
     }
@@ -173,7 +175,7 @@ sqlite3_int64 SQLService::searchTag(const QString& tagName) {
     if (stepRc == SQLITE_ROW) {
         tagId = sqlite3_column_int64(searchTagStmt, 0);
     } else if (stepRc != SQLITE_DONE) {
-        qWarning() << "step searchTag failed:" << lastError();
+        LogService::warn("SQLService", "step searchTag failed: {}", lastError());
         tagId = -2;
     }
 
@@ -184,7 +186,7 @@ sqlite3_int64 SQLService::searchTag(const QString& tagName) {
 void SQLService::ensurePriorityColumn() {
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db, "PRAGMA table_info(Tag);", -1, &stmt, nullptr) != SQLITE_OK) {
-        qWarning() << "prepare table_info failed:" << lastError();
+        LogService::warn("SQLService", "prepare table_info failed: {}", lastError());
         return;
     }
 
@@ -199,7 +201,7 @@ void SQLService::ensurePriorityColumn() {
     sqlite3_finalize(stmt);
 
     if (!hasPriority && !execute("ALTER TABLE Tag ADD COLUMN priority INTEGER DEFAULT 0;")) {
-        qWarning() << "添加 priority 列失败";
+        LogService::warn("SQLService", "failed to add priority column");
     }
 }
 
@@ -218,13 +220,13 @@ void SQLService::ensureSystemTags() {
     for (const Tag& tag : systemTags) {
         const QString error = save(tag);
         if (!error.isEmpty()) {
-            qWarning() << "ensure system tag failed:" << tag.tagName << error;
+            LogService::warn("SQLService", "ensure system tag failed: {} {}", tag.tagName, error);
         }
     }
 
     // 旧版在首次复制时会隐式创建非系统 TEXT 标签, 升级后需将其标记为保留标签。
     if (!execute("UPDATE Tag SET isSysTag = 1 WHERE tagName IN ('TEXT', 'LINK');")) {
-        qWarning() << "mark system tags failed";
+        LogService::warn("SQLService", "mark system tags failed");
     }
 }
 
@@ -233,16 +235,17 @@ SQLService::SQLService(QObject* parent)
 
 SQLService::SQLService(const QDir& databaseDirectory, QObject* parent)
     : QObject(parent), databaseDir(databaseDirectory) {
-    qDebug() << "数据库位置:" << databaseDir.absolutePath();
+    LogService::info("SQLService", "database location: {}", databaseDir.absolutePath());
     if (!databaseDir.exists() && !QDir().mkpath(databaseDir.absolutePath())) {
-        qWarning() << "创建数据库目录失败:" << databaseDir.absolutePath();
+        LogService::warn("SQLService", "failed to create database directory: {}",
+                         databaseDir.absolutePath());
         return;
     }
 
     const QString dbPath = databaseDir.filePath(DATABASE_NAME);
     const int openRc = sqlite3_open(dbPath.toUtf8().constData(), &db);
     if (openRc != SQLITE_OK) {
-        qWarning() << "打开数据库失败:" << dbPath << lastError();
+        LogService::warn("SQLService", "failed to open database: {} {}", dbPath, lastError());
         if (db != nullptr) {
             sqlite3_close(db);
             db = nullptr;
@@ -262,7 +265,7 @@ SQLService::SQLService(const QDir& databaseDirectory, QObject* parent)
     if (sqlite3_prepare_v2(db, tagSQL, -1, &tagStmt, nullptr) != SQLITE_OK ||
         sqlite3_prepare_v2(db, contentSQL, -1, &contentStmt, nullptr) != SQLITE_OK ||
         sqlite3_prepare_v2(db, sqlSearchTag, -1, &searchTagStmt, nullptr) != SQLITE_OK) {
-        qWarning() << "prepare statement failed:" << lastError();
+        LogService::warn("SQLService", "prepare statement failed: {}", lastError());
         sqlite3_finalize(tagStmt);
         sqlite3_finalize(contentStmt);
         sqlite3_finalize(searchTagStmt);
@@ -314,7 +317,7 @@ QString SQLService::save(const Tag& tag) {
     const int stepRc = sqlite3_step(tagStmt);
     if (stepRc != SQLITE_DONE) {
         const QString error = lastError();
-        qWarning() << "save tag failed:" << error;
+        LogService::warn("SQLService", "save tag failed: {}", error);
         resetStatement(tagStmt);
         return error;
     }
@@ -334,7 +337,7 @@ QVector<Tag> SQLService::getTags() const {
         "SELECT tagName, rule, tagNameColor, tagBackColor, isSysTag, mode, priority "
         "FROM Tag ORDER BY priority ASC, id ASC;";
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        qWarning() << "prepare getTags failed:" << lastError();
+        LogService::warn("SQLService", "prepare getTags failed: {}", lastError());
         return tags;
     }
 
@@ -373,7 +376,8 @@ Tag SQLService::matchTag(const QString& content) const {
 
         const QRegularExpression regex(tag.rule);
         if (!regex.isValid()) {
-            qWarning() << "invalid tag regex:" << tag.tagName << regex.errorString();
+            LogService::warn("SQLService", "invalid tag regex: {} {}", tag.tagName,
+                             regex.errorString());
             continue;
         }
 
@@ -402,7 +406,7 @@ bool SQLService::updateTag(const QString& originalName, const Tag& tag) {
         "UPDATE Tag SET tagName = ?, rule = ?, tagNameColor = ?, tagBackColor = ?, isSysTag = ?, "
         "mode = ? WHERE tagName = ? AND isSysTag = 0;";
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        qWarning() << "prepare updateTag failed:" << lastError();
+        LogService::warn("SQLService", "prepare updateTag failed: {}", lastError());
         return false;
     }
 
@@ -423,7 +427,7 @@ bool SQLService::updateTag(const QString& originalName, const Tag& tag) {
     const int stepRc = sqlite3_step(stmt);
     const bool ok = stepRc == SQLITE_DONE && sqlite3_changes(db) == 1;
     if (stepRc != SQLITE_DONE) {
-        qWarning() << "updateTag failed:" << lastError();
+        LogService::warn("SQLService", "updateTag failed: {}", lastError());
     }
 
     sqlite3_finalize(stmt);
@@ -445,7 +449,7 @@ bool SQLService::deleteTag(const QString& tagName) {
         "UPDATE ContentItem SET tag_id = ? "
         "WHERE tag_id = (SELECT id FROM Tag WHERE tagName = ? AND isSysTag = 0);";
     if (sqlite3_prepare_v2(db, reassignSql, -1, &stmt, nullptr) != SQLITE_OK) {
-        qWarning() << "prepare reassign deleted tag failed:" << lastError();
+        LogService::warn("SQLService", "prepare reassign deleted tag failed: {}", lastError());
         execute("ROLLBACK;");
         return false;
     }
@@ -454,7 +458,7 @@ bool SQLService::deleteTag(const QString& tagName) {
     sqlite3_bind_int64(stmt, 1, textTagId);
     sqlite3_bind_text(stmt, 2, tagNameUtf8.constData(), -1, SQLITE_TRANSIENT);
     if (sqlite3_step(stmt) != SQLITE_DONE) {
-        qWarning() << "reassign deleted tag failed:" << lastError();
+        LogService::warn("SQLService", "reassign deleted tag failed: {}", lastError());
         sqlite3_finalize(stmt);
         execute("ROLLBACK;");
         return false;
@@ -463,7 +467,7 @@ bool SQLService::deleteTag(const QString& tagName) {
 
     const char* deleteSql = "DELETE FROM Tag WHERE tagName = ? AND isSysTag = 0;";
     if (sqlite3_prepare_v2(db, deleteSql, -1, &stmt, nullptr) != SQLITE_OK) {
-        qWarning() << "prepare deleteTag failed:" << lastError();
+        LogService::warn("SQLService", "prepare deleteTag failed: {}", lastError());
         execute("ROLLBACK;");
         return false;
     }
@@ -472,7 +476,7 @@ bool SQLService::deleteTag(const QString& tagName) {
     const int stepRc = sqlite3_step(stmt);
     const bool ok = stepRc == SQLITE_DONE && sqlite3_changes(db) == 1;
     if (stepRc != SQLITE_DONE) {
-        qWarning() << "deleteTag failed:" << lastError();
+        LogService::warn("SQLService", "deleteTag failed: {}", lastError());
     }
 
     sqlite3_finalize(stmt);
@@ -500,7 +504,7 @@ bool SQLService::reorderTags(const QStringList& tagNames) {
     sqlite3_stmt* stmt = nullptr;
     const char* sql = "UPDATE Tag SET priority = ? WHERE tagName = ?;";
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        qWarning() << "prepare reorderTags failed:" << lastError();
+        LogService::warn("SQLService", "prepare reorderTags failed: {}", lastError());
         execute("ROLLBACK;");
         return false;
     }
@@ -512,7 +516,7 @@ bool SQLService::reorderTags(const QStringList& tagNames) {
         const QByteArray nameUtf8 = tagNames.at(i).toUtf8();
         sqlite3_bind_text(stmt, 2, nameUtf8.constData(), -1, SQLITE_TRANSIENT);
         if (sqlite3_step(stmt) != SQLITE_DONE) {
-            qWarning() << "reorderTags step failed:" << lastError();
+            LogService::warn("SQLService", "reorderTags step failed: {}", lastError());
             ok = false;
             break;
         }
@@ -567,7 +571,7 @@ QString SQLService::save(const ContentListItemData& data) {
     const int stepRc = sqlite3_step(contentStmt);
     if (stepRc != SQLITE_DONE) {
         error = lastError();
-        qWarning() << "save content failed:" << error;
+        LogService::warn("SQLService", "save content failed: {}", error);
     }
 
     resetStatement(contentStmt);
@@ -592,7 +596,7 @@ QVector<ContentListItemData> SQLService::search(QString rule, SearchMode mode) {
             "ORDER BY c.pinned DESC, c.updateTime DESC LIMIT ?;";
 
         if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-            qWarning() << "prepare search all failed:" << lastError();
+            LogService::warn("SQLService", "prepare search all failed: {}", lastError());
             return QVector<ContentListItemData>{};
         }
 
@@ -626,7 +630,7 @@ QVector<ContentListItemData> SQLService::search(QString rule, SearchMode mode) {
                 "ORDER BY c.pinned DESC, c.updateTime DESC;";
 
             if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-                qWarning() << "prepare regex search failed:" << lastError();
+                LogService::warn("SQLService", "prepare regex search failed: {}", lastError());
                 return results;
             }
 
@@ -640,7 +644,7 @@ QVector<ContentListItemData> SQLService::search(QString rule, SearchMode mode) {
             sqlite3_finalize(stmt);
             return results;
         } else {
-            qWarning() << "正则表达式有误!";
+            LogService::warn("SQLService", "invalid regular expression!");
             return results;
         }
     }
@@ -673,7 +677,7 @@ bool SQLService::updateContentTime(const QString& content) {
     sqlite3_stmt* stmt = nullptr;
     const char* sql = "UPDATE ContentItem SET updateTime = ? WHERE content = ?;";
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        qWarning() << "prepare update content time failed:" << lastError();
+        LogService::warn("SQLService", "prepare update content time failed: {}", lastError());
         return false;
     }
 
@@ -683,7 +687,7 @@ bool SQLService::updateContentTime(const QString& content) {
 
     const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
     if (!ok) {
-        qWarning() << "update content time failed:" << lastError();
+        LogService::warn("SQLService", "update content time failed: {}", lastError());
     }
 
     sqlite3_finalize(stmt);
@@ -698,14 +702,14 @@ bool SQLService::deleteItem(QByteArray hash) {
     sqlite3_stmt* stmt = nullptr;
     const char* sql = "DELETE FROM ContentItem WHERE hash = ?;";
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        qWarning() << "prepare deleteItem failed:" << lastError();
+        LogService::warn("SQLService", "prepare deleteItem failed: {}", lastError());
         return false;
     }
 
     sqlite3_bind_blob(stmt, 1, hash.constData(), hash.size(), SQLITE_TRANSIENT);
     const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
     if (!ok) {
-        qWarning() << "deleteItem failed:" << lastError();
+        LogService::warn("SQLService", "deleteItem failed: {}", lastError());
     }
 
     sqlite3_finalize(stmt);
@@ -727,7 +731,7 @@ QVector<ContentListItemData> SQLService::get() {
         "ORDER BY c.pinned DESC, c.updateTime DESC LIMIT ?;";
 
     if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-        qWarning() << "prepare get failed:" << lastError();
+        LogService::warn("SQLService", "prepare get failed: {}", lastError());
         return results;
     }
 

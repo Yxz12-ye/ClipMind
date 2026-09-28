@@ -1,9 +1,10 @@
 #include "SettingService.hpp"
 
-#include <QDebug>
 #include <QDir>
 #include <QFile>
 #include <QSaveFile>
+
+#include "LogService.hpp"
 
 namespace {
 
@@ -28,7 +29,8 @@ QString typeName(const QVariant& value) {
 void SettingService::_load() {
     const QDir path = QDir(QDir::homePath() + CONFIG_PATH);
     if (!path.exists() && !QDir().mkpath(path.absolutePath())) {
-        qWarning() << "create config directory failed:" << path.absolutePath();
+        LogService::warn("SettingService", "create config directory failed: {}",
+                         path.absolutePath());
         _isReady = false;
         return;
     }
@@ -42,7 +44,8 @@ void SettingService::_load() {
     }
 
     if (!file.open(QIODevice::ReadOnly)) {
-        qWarning() << "open config file failed:" << file.fileName() << file.errorString();
+        LogService::warn("SettingService", "open config file failed: {} {}", file.fileName(),
+                         file.errorString());
         _isReady = false;
         return;
     }
@@ -60,7 +63,8 @@ void SettingService::_load() {
     QJsonParseError parseError;
     const QJsonDocument document = QJsonDocument::fromJson(data, &parseError);
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
-        qWarning() << "config file broken!" << file.fileName() << parseError.errorString();
+        LogService::warn("SettingService", "config file broken! {} {}", file.fileName(),
+                         parseError.errorString());
         _isReady = false;
         return;
     }
@@ -73,7 +77,7 @@ void SettingService::_load() {
 
 void SettingService::_save() {
     if (!_isReady) {
-        qWarning() << "setting service is not ready, save skipped";
+        LogService::warn("SettingService", "setting service is not ready, save skipped");
         return;
     }
 
@@ -82,7 +86,7 @@ void SettingService::_save() {
         const QVariant& value = it.value();
         const QJsonValue jsonValue = QJsonValue::fromVariant(value);
         if (!value.isValid() || jsonValue.isUndefined() || jsonValue.isNull()) {
-            qWarning() << "setting cannot be stored as json:" << it.key();
+            LogService::warn("SettingService", "setting cannot be stored as json: {}", it.key());
             continue;
         }
 
@@ -92,13 +96,14 @@ void SettingService::_save() {
 
     QSaveFile file(configFilePath());
     if (!file.open(QIODevice::WriteOnly)) {
-        qWarning() << "open config file for writing failed:" << file.fileName()
-                   << file.errorString();
+        LogService::warn("SettingService", "open config file for writing failed: {} {}",
+                         file.fileName(), file.errorString());
         return;
     }
 
     if (file.write(_settingObj.toJson(QJsonDocument::Indented)) == -1 || !file.commit()) {
-        qWarning() << "save config file failed:" << file.fileName() << file.errorString();
+        LogService::warn("SettingService", "save config file failed: {} {}", file.fileName(),
+                         file.errorString());
         return;
     }
 
@@ -121,7 +126,8 @@ void SettingService::_read(const QString& key) {
 
     if (!restored) {
         if (!stored.isUndefined()) {
-            qWarning() << "unable to restore setting:" << key << "fallback to default value";
+            LogService::warn("SettingService",
+                             "unable to restore setting: {} fallback to default value", key);
         }
 
         _values.insert(key, defaultValue);
@@ -134,22 +140,24 @@ void SettingService::_read(const QString& key) {
 
 bool SettingService::_register(const QString& key, const QVariant& defaultValue) {
     if (key.isEmpty()) {
-        qWarning() << "setting key is empty";
+        LogService::warn("SettingService", "setting key is empty");
         return false;
     }
 
     if (_defaultValues.contains(key)) {
-        qWarning() << "setting already registered:" << key;
+        LogService::warn("SettingService", "setting already registered: {}", key);
         return false;
     }
 
     if (!_isReady) {
-        qWarning() << "setting service is not ready, register failed:" << key;
+        LogService::warn("SettingService", "setting service is not ready, register failed: {}",
+                         key);
         return false;
     }
 
     if (!isStorable(defaultValue)) {
-        qWarning() << "setting default value cannot be stored as json:" << key;
+        LogService::warn("SettingService", "setting default value cannot be stored as json: {}",
+                         key);
         return false;
     }
 
@@ -160,12 +168,12 @@ bool SettingService::_register(const QString& key, const QVariant& defaultValue)
 
 bool SettingService::_set(const QString& key, const QVariant& value) {
     if (!_isReady) {
-        qWarning() << "setting service is not ready, set failed:" << key;
+        LogService::warn("SettingService", "setting service is not ready, set failed: {}", key);
         return false;
     }
 
     if (!_defaultValues.contains(key)) {
-        qWarning() << "setting is not registered:" << key;
+        LogService::warn("SettingService", "setting is not registered: {}", key);
         return false;
     }
 
@@ -175,13 +183,13 @@ bool SettingService::_set(const QString& key, const QVariant& value) {
     if (converted.metaType() != defaultValue.metaType() &&
         (!converted.canConvert(defaultValue.metaType()) ||
          !converted.convert(defaultValue.metaType()))) {
-        qWarning() << "setting type mismatch:" << key << typeName(converted) << "->"
-                   << typeName(defaultValue);
+        LogService::warn("SettingService", "setting type mismatch: {} {} -> {}", key,
+                         typeName(converted), typeName(defaultValue));
         return false;
     }
 
     if (!isStorable(converted)) {
-        qWarning() << "setting cannot be stored as json:" << key;
+        LogService::warn("SettingService", "setting cannot be stored as json: {}", key);
         return false;
     }
 
@@ -245,7 +253,7 @@ bool SettingService::ready() {
 
 QVariant SettingService::get(const QString& key) const {
     if (!_values.contains(key)) {
-        qWarning() << "setting is not registered:" << key;
+        LogService::warn("SettingService", "setting is not registered: {}", key);
         return {};
     }
 

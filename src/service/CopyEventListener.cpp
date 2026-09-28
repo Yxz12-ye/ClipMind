@@ -1,17 +1,18 @@
 #include "CopyEventListener.hpp"
 
-#include <QDebug>
 #include <cstring>
+
+#include "LogService.hpp"
 
 #ifdef Q_OS_WIN
 
 bool WindowsCopyEventListener::registerListenService() {
     if (AddClipboardFormatListener(hwnd)) {
-        qDebug() << "成功添加剪贴板监听";
+        LogService::debug("CopyEventListener", "clipboard listener added");
         return true;
     }
 
-    qDebug() << "无法添加剪贴板监听";
+    LogService::warn("CopyEventListener", "failed to add clipboard listener");
     return false;
 }
 
@@ -81,12 +82,12 @@ void WindowsCopyEventListener::getClipboardText() {
 
 bool WindowsCopyEventListener::writeClipboardText(const QString& text) {
     if (!OpenClipboard(hwnd)) {
-        qWarning() << "无法打开剪贴板";
+        LogService::warn("CopyEventListener", "failed to open clipboard");
         return false;
     }
 
     if (!EmptyClipboard()) {
-        qWarning() << "无法清空剪贴板";
+        LogService::warn("CopyEventListener", "failed to clear clipboard");
         CloseClipboard();
         return false;
     }
@@ -94,14 +95,14 @@ bool WindowsCopyEventListener::writeClipboardText(const QString& text) {
     const SIZE_T size = static_cast<SIZE_T>(text.size() + 1) * sizeof(wchar_t);
     HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, size);
     if (memory == nullptr) {
-        qWarning() << "无法分配剪贴板内存";
+        LogService::warn("CopyEventListener", "failed to allocate clipboard memory");
         CloseClipboard();
         return false;
     }
 
     auto* destination = static_cast<wchar_t*>(GlobalLock(memory));
     if (destination == nullptr) {
-        qWarning() << "无法锁定剪贴板内存";
+        LogService::warn("CopyEventListener", "failed to lock clipboard memory");
         GlobalFree(memory);
         CloseClipboard();
         return false;
@@ -111,7 +112,7 @@ bool WindowsCopyEventListener::writeClipboardText(const QString& text) {
     GlobalUnlock(memory);
 
     if (SetClipboardData(CF_UNICODETEXT, memory) == nullptr) {
-        qWarning() << "无法写入剪贴板";
+        LogService::warn("CopyEventListener", "failed to write clipboard data");
         GlobalFree(memory);
         CloseClipboard();
         return false;
@@ -140,7 +141,7 @@ bool WindowsCopyEventListener::pasteText(const QString& text) {
     inputs[3].ki.dwFlags = KEYEVENTF_KEYUP;
 
     if (SendInput(4, inputs, sizeof(INPUT)) != 4) {
-        qWarning() << "无法发送粘贴快捷键";
+        LogService::warn("CopyEventListener", "failed to send paste shortcut");
         return false;
     }
 
