@@ -70,6 +70,14 @@ bool PluginSettings::registerEnum(const QString& groupId, const QString& key, co
                                      defaultValue, options, order);
 }
 
+bool PluginSettings::registerFixedText(const QString& groupId, const QString& key,
+                                       const QString& title, const QString& description,
+                                       const QString& value, int order) {
+    return registry != nullptr &&
+           registry->registerSetting(pluginId, groupId, key, title, description,
+                                     SettingType::FixedText, value, {}, order);
+}
+
 SettingRegistry::SettingRegistry(QObject* parent) : QObject(parent) {}
 
 PluginSettings SettingRegistry::registerPlugin(const QString& pluginId) {
@@ -173,8 +181,12 @@ bool SettingRegistry::registerSetting(const QString& pluginId, const QString& gr
         std::any_of(options.cbegin(), options.cend(), [&defaultValue](const auto& option) {
             return option.value == defaultValue.toString();
         });
+    // 固定文本项没有可编辑的取值, 空文本只会在设置页渲染出一个空行
+    const bool validFixedText =
+        type != SettingType::FixedText || !defaultValue.toString().isEmpty();
     if (!canRegister(pluginId, key) || title.trimmed().isEmpty() || !groupExists ||
-        containsKey(settingDefinitions, fullKey) || !defaultValue.isValid() || !validEnum) {
+        containsKey(settingDefinitions, fullKey) || !defaultValue.isValid() || !validEnum ||
+        !validFixedText) {
         LogService::warn("SettingRegistry", "unable to register setting: {}", fullKey);
         return false;
     }

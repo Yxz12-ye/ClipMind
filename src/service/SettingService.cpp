@@ -83,6 +83,10 @@ void SettingService::_save() {
 
     QJsonObject root = _settingObj.object();
     for (auto it = _values.constBegin(); it != _values.constEnd(); ++it) {
+        if (_fixedKeys.contains(it.key())) {
+            continue;  // 只读项(固定文本)只活在内存里, 不占用配置文件的键
+        }
+
         const QVariant& value = it.value();
         const QJsonValue jsonValue = QJsonValue::fromVariant(value);
         if (!value.isValid() || jsonValue.isUndefined() || jsonValue.isNull()) {
@@ -110,8 +114,15 @@ void SettingService::_save() {
     _dirty = false;
 }
 
-void SettingService::_read(const QString& key) {
+void SettingService::_read(const QString& key, bool persistent) {
     const QVariant defaultValue = _defaultValues.value(key);
+
+    if (!persistent) {
+        // 固定文本项不进配置文件: 即使旧版本往文件里写过同名键, 也一律以注册时的值为准
+        _values.insert(key, defaultValue);
+        return;
+    }
+
     const QJsonValue stored = _settingObj.object().value(key);
 
     // JSON 只能区分字符串/数值/布尔/数组/对象, 需要按注册时记录的类型还原
@@ -138,7 +149,7 @@ void SettingService::_read(const QString& key) {
     _values.insert(key, value);
 }
 
-bool SettingService::_register(const QString& key, const QVariant& defaultValue) {
+bool SettingService::_register(const QString& key, const QVariant& defaultValue, bool persistent) {
     if (key.isEmpty()) {
         LogService::warn("SettingService", "setting key is empty");
         return false;
@@ -162,7 +173,11 @@ bool SettingService::_register(const QString& key, const QVariant& defaultValue)
     }
 
     _defaultValues.insert(key, defaultValue);
-    _read(key);  // 缺失或无法还原时会置 _dirty, 由调用方决定何时落盘
+    if (!persistent) {
+        // 只读项: 值只留在内存, 之后 set() 也会被拒绝
+        _fixedKeys.insert(key);
+    }
+    _read(key, persistent);  // 缺失或无法还原时会置 _dirty, 由调用方决定何时落盘
     return true;
 }
 
@@ -174,6 +189,11 @@ bool SettingService::_set(const QString& key, const QVariant& value) {
 
     if (!_defaultValues.contains(key)) {
         LogService::warn("SettingService", "setting is not registered: {}", key);
+        return false;
+    }
+
+    if (_fixedKeys.contains(key)) {
+        LogService::warn("SettingService", "setting is read-only and cannot be changed: {}", key);
         return false;
     }
 
@@ -202,7 +222,11 @@ bool SettingService::_set(const QString& key, const QVariant& value) {
 }
 
 bool SettingService::registerSetting(const QString& key, const QVariant& defaultValue) {
-    if (!_register(key, defaultValue)) {
+    return registerSetting(key, defaultValue, true);
+}
+
+bool SettingService::registerSetting(const QString& key, const QVariant& value, bool persistent) {
+    if (!_register(key, value, persistent)) {
         return false;
     }
 
@@ -213,15 +237,17 @@ bool SettingService::registerSetting(const QString& key, const QVariant& default
     return true;
 }
 
-bool SettingService::registerSettings(const QVector<QPair<QString, QVariant>>& defaultValues) {
+bool SettingService::registerSettings(const QVector<QPair<QString, QVariant>>& defaultValues,
+                                      bool persistent) {
     bool allRegistered = true;
     for (const auto& [key, defaultValue] : defaultValues) {
-        if (!_register(key, defaultValue)) {
+        if (!_register(key, defaultValue, persistent)) {
             allRegistered = false;
         }
     }
 
     // 整批只落盘一次: 首次运行时缺键较多, 逐条注册会把配置文件全量重写很多遍
+    // (只读项不会置 _dirty, 因此整批只读时这里不会产生任何写入)
     if (_dirty) {
         _save();
     }

@@ -18,7 +18,8 @@ class SQLService;
  *
  * 它同时充当这条链路的组合根:
  * - 启动时 commitDefinitions() 把 SettingRegistry 收集到的定义提交给 SettingService,
- *   默认值到这一步才写进 config.json, 之后 get() 才读得到值;
+ *   默认值到这一步才写进 config.json, 之后 get() 才读得到值; 其中只读的固定文本项
+ *   (isPersistent() 为 false)不进配置文件, 只以只读方式登记在内存里;
  * - openDialog() 负责创建设置对话框, 把当前值与标签列表推给界面, 再把界面的用户
  *   意图接回来: 设置项交给 SettingService 落库, 标签交给 SQLService 校验并增删改,
  *   完成后用 setTags() 把权威列表推回界面。

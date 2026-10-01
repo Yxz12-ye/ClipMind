@@ -10,6 +10,7 @@
 #include <QStandardItem>
 #include <QStringList>
 
+#include "config.hpp"
 #include "controller/SettingsController.hpp"
 #include "service/SettingRegistry.hpp"
 #include "service/SettingService.hpp"
@@ -207,6 +208,13 @@ MainWindow::MainWindow()
                               QStringLiteral("界面随系统主题自动调整"), 30);
     coreSettings.registerPage(QStringLiteral("about"), QStringLiteral("关于"),
                               QStringLiteral("ClipMind 剪贴板管理器"), 40);
+    coreSettings.registerGroup(QStringLiteral("about"), QStringLiteral("version"),
+                               QStringLiteral("版本信息"));
+    // 只读且不写配置文件: 版本号来自 CMake 的 PROJECT_VERSION(见根 CMakeLists.txt)
+    coreSettings.registerFixedText(QStringLiteral("version"), QStringLiteral("softwareVersion"),
+                                   QStringLiteral("软件版本"),
+                                   QStringLiteral("当前安装的 ClipMind 版本号"),
+                                   QStringLiteral(PROJECT_VERSION));
     // Plugin modules register their settings before the registry is sealed.
     settingRegistry->seal();
 

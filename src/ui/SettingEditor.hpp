@@ -8,6 +8,7 @@
 
 class QCheckBox;
 class QComboBox;
+class QLabel;
 class QLineEdit;
 class QSpinBox;
 
@@ -72,4 +73,17 @@ public:
 
 private:
     QComboBox* comboBox;
+};
+
+// 固定文本: 只读展示一段文本(软件版本号这类信息), 用户改不了, 因此不发 valueChanged
+class FixedTextSettingEditor final : public SettingEditor {
+    Q_OBJECT
+
+public:
+    explicit FixedTextSettingEditor(const QString& value, QWidget* parent = nullptr);
+    QVariant value() const override;
+    void setValue(const QVariant& value) override;
+
+private:
+    QLabel* label;
 };

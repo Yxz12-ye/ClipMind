@@ -23,18 +23,26 @@ void SettingsController::commitDefinitions() {
         return;
     }
 
-    QVector<QPair<QString, QVariant>> defaultValues;
+    QVector<QPair<QString, QVariant>> defaultValues;  // 用户偏好, 整批只落盘一次
+    QVector<QPair<QString, QVariant>> fixedValues;    // 固定文本项, 只进内存
     const QVector<SettingDefinition>& definitions = registry->allSettings();
     defaultValues.reserve(definitions.size());
     for (const SettingDefinition& definition : definitions) {
-        defaultValues.append({definition.key, definition.defaultValue});
+        if (definition.isPersistent()) {
+            defaultValues.append({definition.key, definition.defaultValue});
+        } else {
+            fixedValues.append({definition.key, definition.defaultValue});
+        }
     }
 
-    if (!settingService->registerSettings(defaultValues)) {
+    // 固定文本项虽然不写配置文件, 但同样要注册: 之后 value() 与界面推值才能走同一条路
+    const bool persistentCommitted = settingService->registerSettings(defaultValues);
+    const bool fixedCommitted = settingService->registerSettings(fixedValues, false);
+    if (!persistentCommitted || !fixedCommitted) {
         LogService::warn("SettingsController",
                          "commit setting definitions failed, some of {} settings are unavailable "
                          "(see warnings above)",
-                         defaultValues.size());
+                         definitions.size());
     }
 }
 

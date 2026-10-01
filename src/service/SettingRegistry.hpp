@@ -7,10 +7,11 @@
 
 // 设置项的取值类型, 决定设置页用哪种编辑控件, 也决定默认值如何被 SettingService 还原
 enum class SettingType {
-    Boolean,  // 复选框
-    String,   // 单行文本框
-    Integer,  // 整数输入框
-    Enum,     // 下拉框, 取值必须是 options 中的某一项
+    Boolean,    // 复选框
+    String,     // 单行文本框
+    Integer,    // 整数输入框
+    Enum,       // 下拉框, 取值必须是 options 中的某一项
+    FixedText,  // 只读文本, 例如软件版本: 界面只展示注册时给定的文本, 用户改不了
 };
 
 // 枚举型设置的一个候选项: value 用于持久化, label 用于界面显示
@@ -43,9 +44,14 @@ struct SettingDefinition {
     QString title;        // 设置项标题
     QString description;  // 设置项说明, 显示在标题下方
     SettingType type = SettingType::String;
-    QVariant defaultValue;           // 注册时的默认值, 同时记录了类型
+    QVariant defaultValue;           // 注册时的默认值, 同时记录了类型; FixedText 存放展示文本
     QVector<SettingOption> options;  // 仅 Enum 类型使用
     int order = 0;                   // 同一分组内的升序排列
+
+    // 该项是否需要写入配置文件: 固定文本项只存在于内存与界面上, 不是用户偏好
+    bool isPersistent() const {
+        return type != SettingType::FixedText;
+    }
 };
 
 class SettingRegistry;
@@ -119,6 +125,19 @@ public:
     bool registerEnum(const QString& groupId, const QString& key, const QString& title,
                       const QString& description, const QVector<SettingOption>& options,
                       const QString& defaultValue, int order = 0);
+    /**
+     * @brief 注册一个固定文本设置项: 只读, 且不写入配置文件
+     * @param value 界面上原样展示的文本, 例如软件版本号, 不能为空
+     * @return 注册成功返回 `true`; `value` 为空时返回 `false`
+     *
+     * 典型用途是版本号、构建时间这类"只展示给用户看"的信息: 设置页把它渲染成一行只读
+     * 文本, 用户改不了, 也不会占用 config.json 里的键。提交阶段它仍然会进 SettingService
+     * (以只读方式), 这样 SettingController::value() 与界面刷新可以和其他设置项走同一条路。
+     *
+     * 其余参数含义同 registerBool()。
+     */
+    bool registerFixedText(const QString& groupId, const QString& key, const QString& title,
+                           const QString& description, const QString& value, int order = 0);
 
 private:
     friend class SettingRegistry;
@@ -139,6 +158,7 @@ private:
  * 注册完成后定义集合是冻结的(seal), 之后由 Controller 用 allSettings() 取到全部
  * 设置项, 逐条调用 SettingService::registerSetting() 把默认值提交上去——"提交"是
  * 显式的一步, 顺序必须在任何 get()/建界面之前, 否则会读到未注册的空值。
+ * isPersistent() 为 false 的项(固定文本)提交时走只读形式, 值只留在内存里。
  *
  * 典型流程(见 MainWindow 构造 / SettingsController):
  * @code
@@ -149,7 +169,7 @@ private:
  * registry->seal();  // ① 所有插件注册完毕后封盘
  *
  * for (const SettingDefinition& def : registry->allSettings()) {  // ② 手动提交
- *     service->registerSetting(def.key, def.defaultValue);
+ *     service->registerSetting(def.key, def.defaultValue, def.isPersistent());
  * }
  * @endcode
  *

@@ -3,6 +3,7 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QHBoxLayout>
+#include <QLabel>
 #include <QLineEdit>
 #include <QSignalBlocker>
 #include <QSpinBox>
@@ -95,4 +96,24 @@ void EnumSettingEditor::setValue(const QVariant& value) {
     if (index >= 0) {
         comboBox->setCurrentIndex(index);
     }
+}
+
+FixedTextSettingEditor::FixedTextSettingEditor(const QString& value, QWidget* parent)
+    : SettingEditor(parent) {
+    label = new QLabel(value, this);
+    label->setObjectName("settingsFixedValue");
+    label->setWordWrap(true);
+    // 只读但不是"死"的: 允许选中复制, 比如把版本号贴到别处
+    label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    auto* layout = new QHBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->addWidget(label);
+}
+
+QVariant FixedTextSettingEditor::value() const {
+    return label->text();
+}
+
+void FixedTextSettingEditor::setValue(const QVariant& value) {
+    label->setText(value.toString());
 }

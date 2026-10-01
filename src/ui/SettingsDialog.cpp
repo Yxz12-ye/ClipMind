@@ -466,11 +466,20 @@ SettingEditor* SettingsDialog::createEditor(const SettingDefinition& setting, QW
         }
         return new EnumSettingEditor(options, currentValue.toString(), parent);
     }
+    case SettingType::FixedText:
+        // 固定文本项只读, 文本在注册时就定好了, 之后不会再变
+        return new FixedTextSettingEditor(currentValue.toString(), parent);
     }
     return nullptr;
 }
 
 void SettingsDialog::bindEditor(const SettingDefinition& setting, SettingEditor* editor) {
+    if (!setting.isPersistent()) {
+        // 固定文本项没有可写取值: 文本由注册表给定, 也不需要接收外部的取值推送,
+        // 因此不进 editors 表(编辑控件本身也不会发 valueChanged)
+        return;
+    }
+
     editors.insert(setting.key, editor);
     connect(editor, &SettingEditor::valueChanged, this,
             [this, key = setting.key](const QVariant& value) {
@@ -660,6 +669,7 @@ void SettingsDialog::applyTheme() {
             "QFrame#settingsSection QWidget { background: transparent; }"
             "QFrame#settingsSection > QWidget#settingsRow { border-top: 1px solid %6; }"
             "QLabel#settingsShortcutValue { color: #3B82F6; font-weight: 600; }"
+            "QLabel#settingsFixedValue { color: %5; }"
             "QCheckBox { color: %4; spacing: 6px; }"
             "QCheckBox::indicator { width: 16px; height: 16px; }"
             "QCheckBox::indicator:unchecked { border: 1px solid %6; border-radius: 4px; }"
