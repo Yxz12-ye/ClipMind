@@ -1,17 +1,10 @@
 #include <QApplication>
 
-#ifdef Q_OS_WIN
-#include <objbase.h>
-#endif
-
 #include "./service/LogService.hpp"
 #include "./ui/MainWindow.hpp"
 #include "config.hpp"
 
 int main(int argc, char** argv) {
-#ifdef Q_OS_WIN
-    const HRESULT comInitializationResult = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-#endif
     int exitCode = 0;
     {
         QApplication app(argc, argv);
@@ -28,10 +21,5 @@ int main(int argc, char** argv) {
         LogService::info("main", "exiting, return code: {}", exitCode);
         LogService::shutdown();
     }
-#ifdef Q_OS_WIN
-    if (SUCCEEDED(comInitializationResult)) {
-        CoUninitialize();
-    }
-#endif
     return exitCode;
 }
