@@ -3,6 +3,7 @@ set(TARGET_NAME ${PROJECT_NAME}_EmbeddingService_test)
 add_executable(${TARGET_NAME}
     embedding_service_test.cpp
     ${CMAKE_SOURCE_DIR}/src/service/EmbeddingService.cpp
+    ${CMAKE_SOURCE_DIR}/src/service/LogService.cpp
 )
 
 target_include_directories(${TARGET_NAME} PRIVATE
@@ -14,6 +15,7 @@ target_link_libraries(${TARGET_NAME} PRIVATE
     Qt6::Core
     Qt6::Network
     Qt6::Test
+    spdlog::spdlog
 )
 
 if(ENABLE_WARNINGS)

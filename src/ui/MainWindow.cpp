@@ -220,7 +220,8 @@ MainWindow::MainWindow()
                                 QStringLiteral("服务端接收向量化请求的地址"), QString());
     coreSettings.registerString(QStringLiteral("service"), QStringLiteral("embeddingModel"),
                                 QStringLiteral("模型"),
-                                QStringLiteral("发送给接口的模型标识, 留空则用服务端默认值"),
+                                QStringLiteral("发送给接口的模型标识, 留空则把空标识发给接口, "
+                                               "由服务端套用默认模型"),
                                 QString());
     // 动作项: 按钮文本由注册表给出, 点击后由 SettingsController 执行接口测试
     coreSettings.registerAction(QStringLiteral("service"), QStringLiteral("embeddingTest"),

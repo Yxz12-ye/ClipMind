@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QElapsedTimer>
 #include <QHash>
 #include <QMetaType>
 #include <QObject>
@@ -64,6 +65,7 @@ private:
         QNetworkReply* reply = nullptr;
         QTimer* timer = nullptr;
         QString requestedModel;
+        QElapsedTimer elapsed;  // 请求发出到结束的耗时, 只用于日志
         bool timedOut = false;
         bool cancelled = false;
     };
@@ -73,7 +75,8 @@ private:
     quint64 nextRequestId = 1;
     int requestTimeoutMs;
 
-    static bool resolveEndpoint(const EmbeddingConfig& config, QUrl* endpoint, QString* error);
+    static bool resolveEndpoint(const QString& url, EmbeddingUrlMode urlMode, QUrl* endpoint,
+                                QString* error);
     void finishRequest(quint64 requestId);
     void failLater(quint64 requestId, EmbeddingErrorType type, const QString& message,
                    int httpStatus = 0);

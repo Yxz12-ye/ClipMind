@@ -148,6 +148,32 @@ TEST(EmbeddingServiceTest, PostsToFullEndpointAndParsesVector) {
     EXPECT_EQ(payload.value(QStringLiteral("model")).toString(), QStringLiteral("fake-model"));
 }
 
+TEST(EmbeddingServiceTest, SendsEmptyModelToServerWhenModelIsNotConfigured) {
+    FakeEmbeddingServer server;
+    ASSERT_TRUE(server.start());
+    EmbeddingService service;
+    QSignalSpy successSpy(&service, &EmbeddingService::embeddingSucceeded);
+    QSignalSpy failureSpy(&service, &EmbeddingService::embeddingFailed);
+
+    EmbeddingConfig config = configFor(server, EmbeddingUrlMode::FullEndpoint);
+    config.model.clear();  // 设置里的模型留空: 由服务端套用默认模型, 请求照发
+    const quint64 requestId = service.embedText(QStringLiteral("no-model"), config);
+    ASSERT_TRUE(waitForCompletion(&successSpy, &failureSpy));
+
+    ASSERT_EQ(failureSpy.count(), 0);
+    ASSERT_EQ(successSpy.count(), 1);
+    EXPECT_EQ(server.requestPath, QStringLiteral("/v1/embeddings"));
+
+    const auto payload = QJsonDocument::fromJson(server.requestBody).object();
+    ASSERT_TRUE(payload.contains(QStringLiteral("model")));
+    EXPECT_TRUE(payload.value(QStringLiteral("model")).toString().isEmpty());
+
+    // 响应里带上模型时以响应为准, 留空的请求模型不该覆盖它
+    const auto result = qvariant_cast<EmbeddingResult>(successSpy.at(0).at(1));
+    EXPECT_EQ(successSpy.at(0).at(0).toULongLong(), requestId);
+    EXPECT_EQ(result.model, QStringLiteral("fake-model"));
+}
+
 TEST(EmbeddingServiceTest, AppendsEmbeddingsToBaseUrl) {
     FakeEmbeddingServer server;
     ASSERT_TRUE(server.start());

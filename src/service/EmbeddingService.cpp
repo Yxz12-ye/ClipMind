@@ -11,7 +11,14 @@
 #include <QUrl>
 #include <QtGlobal>
 
+#include <string_view>
+
+#include "LogService.hpp"
+
 namespace {
+
+// 日志模块名, 与 LogService 的用法保持一致
+constexpr std::string_view kLogModule = "EmbeddingService";
 
 QString responseErrorMessage(const QByteArray& body) {
     QJsonParseError parseError;
@@ -32,6 +39,10 @@ QString responseErrorMessage(const QByteArray& body) {
     return QString();
 }
 
+// 请求里没带模型时, 服务端可能直接报错; 这类失败在日志里补一句提醒
+const QString kEmptyModelHint =
+    QStringLiteral(" (请求未携带模型标识, 若服务端要求指定模型, 请在设置里填写模型)");
+
 }  // namespace
 
 EmbeddingService::EmbeddingService(QObject* parent, int requestTimeoutMs)
@@ -43,6 +54,7 @@ quint64 EmbeddingService::embedText(const QString& text, const EmbeddingConfig& 
     const quint64 requestId = nextRequestId++;
 
     if (text.trimmed().isEmpty()) {
+        LogService::warn(kLogModule, "embedding request #{} rejected: empty test text", requestId);
         failLater(requestId, EmbeddingErrorType::InvalidConfiguration,
                   QStringLiteral("测试文本不能为空"));
         return requestId;
@@ -50,7 +62,9 @@ quint64 EmbeddingService::embedText(const QString& text, const EmbeddingConfig& 
 
     QUrl endpoint;
     QString configurationError;
-    if (!resolveEndpoint(config, &endpoint, &configurationError)) {
+    if (!resolveEndpoint(config.url, config.urlMode, &endpoint, &configurationError)) {
+        LogService::warn(kLogModule, "embedding request #{} rejected: {} (url: '{}', model: '{}')",
+                         requestId, configurationError, config.url, config.model);
         failLater(requestId, EmbeddingErrorType::InvalidConfiguration, configurationError);
         return requestId;
     }
@@ -59,9 +73,23 @@ quint64 EmbeddingService::embedText(const QString& text, const EmbeddingConfig& 
     request.setHeader(QNetworkRequest::ContentTypeHeader, QStringLiteral("application/json"));
     request.setRawHeader("Accept", "application/json");
 
+    // 模型标识留空时原样发给服务端(空串), 由服务端套用默认模型; 这里不做本地拦截
+    const QString requestedModel = config.model.trimmed();
     QJsonObject payload;
     payload.insert(QStringLiteral("input"), text);
-    payload.insert(QStringLiteral("model"), config.model.trimmed().isEmpty() ? QString() : config.model.trimmed());
+    payload.insert(QStringLiteral("model"), requestedModel);
+
+    LogService::debug(kLogModule,
+                      "embedding request #{} -> {} (model: '{}', url mode: {}, text length: {})",
+                      requestId, endpoint.toString(QUrl::FullyEncoded), requestedModel,
+                      config.urlMode == EmbeddingUrlMode::BaseUrl ? "base-url" : "full-endpoint",
+                      text.size());
+    if (requestedModel.isEmpty()) {
+        LogService::debug(kLogModule,
+                          "embedding request #{} carries no model identifier, the server default "
+                          "will be used",
+                          requestId);
+    }
 
     QNetworkReply* reply = networkManager->post(request, QJsonDocument(payload).toJson());
     auto* timeoutTimer = new QTimer(reply);
@@ -70,7 +98,8 @@ quint64 EmbeddingService::embedText(const QString& text, const EmbeddingConfig& 
     PendingRequest pending;
     pending.reply = reply;
     pending.timer = timeoutTimer;
-    pending.requestedModel = config.model.trimmed();
+    pending.requestedModel = requestedModel;
+    pending.elapsed.start();
     pendingRequests.insert(requestId, pending);
 
     connect(timeoutTimer, &QTimer::timeout, this, [this, requestId] {
@@ -79,6 +108,8 @@ quint64 EmbeddingService::embedText(const QString& text, const EmbeddingConfig& 
             return;
         }
 
+        LogService::warn(kLogModule, "embedding request #{} timed out after {} ms, aborting",
+                         requestId, requestTimeoutMs);
         request->timedOut = true;
         request->reply->abort();
     });
@@ -91,23 +122,21 @@ quint64 EmbeddingService::embedText(const QString& text, const EmbeddingConfig& 
 void EmbeddingService::cancelRequest(quint64 requestId) {
     auto request = pendingRequests.find(requestId);
     if (request == pendingRequests.end()) {
+        LogService::debug(kLogModule, "cancel ignored, embedding request #{} is not pending",
+                          requestId);
         return;
     }
 
+    LogService::debug(kLogModule, "embedding request #{} cancelled", requestId);
     request->cancelled = true;
     request->reply->abort();
 }
 
-bool EmbeddingService::resolveEndpoint(const EmbeddingConfig& config, QUrl* endpoint,
+bool EmbeddingService::resolveEndpoint(const QString& url, EmbeddingUrlMode urlMode, QUrl* endpoint,
                                        QString* error) {
-    const QString urlText = config.url.trimmed();
+    const QString urlText = url.trimmed();
     if (urlText.isEmpty()) {
         *error = QStringLiteral("请输入接口 URL");
-        return false;
-    }
-
-    if (config.model.trimmed().isEmpty()) {
-        *error = QStringLiteral("请输入模型名称");
         return false;
     }
 
@@ -125,7 +154,7 @@ bool EmbeddingService::resolveEndpoint(const EmbeddingConfig& config, QUrl* endp
         return false;
     }
 
-    if (config.urlMode == EmbeddingUrlMode::BaseUrl) {
+    if (urlMode == EmbeddingUrlMode::BaseUrl) {
         QString path = resolved.path();
         while (path.endsWith(QLatin1Char('/'))) {
             path.chop(1);
@@ -140,6 +169,9 @@ bool EmbeddingService::resolveEndpoint(const EmbeddingConfig& config, QUrl* endp
 void EmbeddingService::finishRequest(quint64 requestId) {
     auto requestIterator = pendingRequests.find(requestId);
     if (requestIterator == pendingRequests.end()) {
+        LogService::debug(kLogModule,
+                          "embedding request #{} finished but is no longer pending, result dropped",
+                          requestId);
         return;
     }
 
@@ -150,8 +182,11 @@ void EmbeddingService::finishRequest(quint64 requestId) {
     QNetworkReply* reply = request.reply;
     const QByteArray body = reply->readAll();
     const int httpStatus = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    const qint64 elapsedMs = request.elapsed.elapsed();
 
     if (request.cancelled) {
+        LogService::debug(kLogModule, "embedding request #{} aborted by caller after {} ms",
+                          requestId, elapsedMs);
         emit embeddingFailed(requestId, EmbeddingError{EmbeddingErrorType::Cancelled,
                                                        QStringLiteral("请求已取消"), httpStatus});
         reply->deleteLater();
@@ -159,6 +194,8 @@ void EmbeddingService::finishRequest(quint64 requestId) {
     }
 
     if (request.timedOut) {
+        LogService::warn(kLogModule, "embedding request #{} failed: timeout after {} ms (http {})",
+                         requestId, elapsedMs, httpStatus);
         emit embeddingFailed(
             requestId,
             EmbeddingError{EmbeddingErrorType::Timeout,
@@ -178,6 +215,9 @@ void EmbeddingService::finishRequest(quint64 requestId) {
         if (message.isEmpty()) {
             message = QStringLiteral("请求失败");
         }
+        LogService::warn(kLogModule, "embedding request #{} failed: http {} in {} ms: {}{}",
+                         requestId, httpStatus, elapsedMs, message,
+                         request.requestedModel.isEmpty() ? kEmptyModelHint : QString());
         emit embeddingFailed(requestId,
                              EmbeddingError{EmbeddingErrorType::Http, message, httpStatus});
         reply->deleteLater();
@@ -189,6 +229,8 @@ void EmbeddingService::finishRequest(quint64 requestId) {
         if (message.isEmpty()) {
             message = QStringLiteral("网络请求失败");
         }
+        LogService::warn(kLogModule, "embedding request #{} failed: network error in {} ms: {}",
+                         requestId, elapsedMs, message);
         emit embeddingFailed(requestId,
                              EmbeddingError{EmbeddingErrorType::Network, message, httpStatus});
         reply->deleteLater();
@@ -198,6 +240,9 @@ void EmbeddingService::finishRequest(quint64 requestId) {
     QJsonParseError parseError;
     const QJsonDocument document = QJsonDocument::fromJson(body, &parseError);
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        LogService::warn(kLogModule,
+                         "embedding request #{} failed: invalid json response in {} ms: {}",
+                         requestId, elapsedMs, parseError.errorString());
         emit embeddingFailed(
             requestId, EmbeddingError{EmbeddingErrorType::InvalidResponse,
                                       QStringLiteral("服务返回了无效的 JSON 响应"), httpStatus});
@@ -209,6 +254,9 @@ void EmbeddingService::finishRequest(quint64 requestId) {
     const QJsonValue dataValue = response.value(QStringLiteral("data"));
     if (!dataValue.isArray() || dataValue.toArray().isEmpty() ||
         !dataValue.toArray().first().isObject()) {
+        LogService::warn(kLogModule,
+                         "embedding request #{} failed: response is missing data[0] in {} ms",
+                         requestId, elapsedMs);
         emit embeddingFailed(requestId,
                              EmbeddingError{EmbeddingErrorType::InvalidResponse,
                                             QStringLiteral("响应中缺少 data[0]"), httpStatus});
@@ -219,6 +267,10 @@ void EmbeddingService::finishRequest(quint64 requestId) {
     const QJsonValue embeddingValue =
         dataValue.toArray().first().toObject().value(QStringLiteral("embedding"));
     if (!embeddingValue.isArray() || embeddingValue.toArray().isEmpty()) {
+        LogService::warn(kLogModule,
+                         "embedding request #{} failed: response carries no usable embedding "
+                         "vector in {} ms",
+                         requestId, elapsedMs);
         emit embeddingFailed(
             requestId,
             EmbeddingError{EmbeddingErrorType::InvalidResponse,
@@ -232,6 +284,10 @@ void EmbeddingService::finishRequest(quint64 requestId) {
     embedding.reserve(embeddingArray.size());
     for (const QJsonValue& value : embeddingArray) {
         if (!value.isDouble()) {
+            LogService::warn(kLogModule,
+                             "embedding request #{} failed: embedding vector holds a non-numeric "
+                             "element at index {}",
+                             requestId, embedding.size());
             emit embeddingFailed(
                 requestId,
                 EmbeddingError{EmbeddingErrorType::InvalidResponse,
@@ -247,6 +303,10 @@ void EmbeddingService::finishRequest(quint64 requestId) {
         responseModel = request.requestedModel;
     }
 
+    LogService::debug(kLogModule,
+                      "embedding request #{} succeeded: {} dimensions in {} ms (http {}, model: "
+                      "'{}')",
+                      requestId, embedding.size(), elapsedMs, httpStatus, responseModel);
     emit embeddingSucceeded(requestId, EmbeddingResult{embedding, responseModel});
     reply->deleteLater();
 }
@@ -254,6 +314,7 @@ void EmbeddingService::finishRequest(quint64 requestId) {
 void EmbeddingService::failLater(quint64 requestId, EmbeddingErrorType type, const QString& message,
                                  int httpStatus) {
     QTimer::singleShot(0, this, [this, requestId, type, message, httpStatus] {
+        LogService::debug(kLogModule, "embedding request #{} rejected: {}", requestId, message);
         emit embeddingFailed(requestId, EmbeddingError{type, message, httpStatus});
     });
 }
