@@ -7,14 +7,14 @@
 #include <QVariant>
 #include <QVector>
 
-#include "struct.hpp"  // 信号/槽按值传递 Tag, moc 生成元对象时需要完整定义
+#include "SettingEditor.hpp"  // 动作项的提示状态 SettingActionState 要出现在槽签名里
+#include "struct.hpp"         // 信号/槽按值传递 Tag, moc 生成元对象时需要完整定义
 
 class QEvent;
 class QListWidget;
 class QListWidgetItem;
 class QStackedWidget;
 class QVBoxLayout;
-class SettingEditor;
 class SettingRegistry;
 
 class CustomHead;
@@ -70,11 +70,15 @@ public slots:
     void setTags(const QVector<Tag>& tags);
     // 标签操作失败时由 Controller 调用, 提示文案由调用方决定
     void showTagError(const QString& title, const QString& message);
+    // 把动作项的结果提示推给界面(动作项自身没有取值, 这里推的只是提示文本)
+    void setActionStatus(const QString& settingId, const QString& text, SettingActionState state);
 
 signals:
     // 对应设置项发出更改请求(设置项id(完整键值, 可以参考QHash<QString, SettingEditor*> editors;)
     // 更改后的值)
     void valueChanged(const QString& settingId, const QVariant& value);
+    // 动作项的按钮被点击: 本类只上报键名, 由 Controller 决定执行什么
+    void actionTriggered(const QString& settingId);
     // 标签操作请求: 本类只收集用户意图, 数据变更由 Controller 完成后调用 setTags() 推回界面
     void tagAddRequested(const Tag& tag);
     void tagUpdateRequested(const QString& originalName, const Tag& tag);

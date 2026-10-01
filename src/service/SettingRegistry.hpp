@@ -12,6 +12,7 @@ enum class SettingType {
     Integer,    // 整数输入框
     Enum,       // 下拉框, 取值必须是 options 中的某一项
     FixedText,  // 只读文本, 例如软件版本: 界面只展示注册时给定的文本, 用户改不了
+    Action,     // 按钮, 自身没有取值: 点击后由外部按 key 执行动作, 例如"测试接口"
 };
 
 // 枚举型设置的一个候选项: value 用于持久化, label 用于界面显示
@@ -44,13 +45,18 @@ struct SettingDefinition {
     QString title;        // 设置项标题
     QString description;  // 设置项说明, 显示在标题下方
     SettingType type = SettingType::String;
-    QVariant defaultValue;           // 注册时的默认值, 同时记录了类型; FixedText 存放展示文本
+    QVariant defaultValue;  // 注册时的默认值, 同时记录了类型; FixedText 存展示文本, Action 存按钮文本
     QVector<SettingOption> options;  // 仅 Enum 类型使用
     int order = 0;                   // 同一分组内的升序排列
 
-    // 该项是否需要写入配置文件: 固定文本项只存在于内存与界面上, 不是用户偏好
+    // 该项是否有取值: 动作项只是界面上的一个按钮, 不占 SettingService 的键
+    bool storesValue() const {
+        return type != SettingType::Action;
+    }
+
+    // 该项是否需要写入配置文件: 固定文本与动作项只存在于内存与界面上, 不是用户偏好
     bool isPersistent() const {
-        return type != SettingType::FixedText;
+        return storesValue() && type != SettingType::FixedText;
     }
 };
 
@@ -138,6 +144,19 @@ public:
      */
     bool registerFixedText(const QString& groupId, const QString& key, const QString& title,
                            const QString& description, const QString& value, int order = 0);
+    /**
+     * @brief 注册一个动作设置项: 设置页渲染成一个按钮, 自身没有取值
+     * @param text 按钮上显示的文本, 不能为空
+     * @return 注册成功返回 `true`; `text` 为空时返回 `false`
+     *
+     * 动作项只描述"这里有一个按钮": 点击后发出带键名的请求, 具体做什么由 Controller 侧
+     * 按 key 决定, 因此设置页不需要认识任何具体服务, 也不会写进配置文件。
+     * 典型用途是"测试接口"这种触发一次性的操作。
+     *
+     * 其余参数含义同 registerBool()。
+     */
+    bool registerAction(const QString& groupId, const QString& key, const QString& title,
+                        const QString& description, const QString& text, int order = 0);
 
 private:
     friend class SettingRegistry;
@@ -158,7 +177,8 @@ private:
  * 注册完成后定义集合是冻结的(seal), 之后由 Controller 用 allSettings() 取到全部
  * 设置项, 逐条调用 SettingService::registerSetting() 把默认值提交上去——"提交"是
  * 显式的一步, 顺序必须在任何 get()/建界面之前, 否则会读到未注册的空值。
- * isPersistent() 为 false 的项(固定文本)提交时走只读形式, 值只留在内存里。
+ * isPersistent() 为 false 的项(固定文本)提交时走只读形式, 值只留在内存里;
+ * storesValue() 为 false 的项(动作)连键都不占, 只在设置页上渲染成一个按钮。
  *
  * 典型流程(见 MainWindow 构造 / SettingsController):
  * @code

@@ -469,24 +469,43 @@ SettingEditor* SettingsDialog::createEditor(const SettingDefinition& setting, QW
     case SettingType::FixedText:
         // 固定文本项只读, 文本在注册时就定好了, 之后不会再变
         return new FixedTextSettingEditor(currentValue.toString(), parent);
+    case SettingType::Action:
+        // 动作项只是一个按钮, defaultValue 里存的是按钮文本
+        return new ActionSettingEditor(currentValue.toString(), parent);
     }
     return nullptr;
 }
 
 void SettingsDialog::bindEditor(const SettingDefinition& setting, SettingEditor* editor) {
-    if (!setting.isPersistent()) {
+    if (setting.type == SettingType::FixedText) {
         // 固定文本项没有可写取值: 文本由注册表给定, 也不需要接收外部的取值推送,
         // 因此不进 editors 表(编辑控件本身也不会发 valueChanged)
         return;
     }
 
+    // 动作项入表是为了能通过 setActionStatus() 推回结果提示, 但它没有取值, 只转发点击
     editors.insert(setting.key, editor);
+    if (auto* actionEditor = qobject_cast<ActionSettingEditor*>(editor); actionEditor != nullptr) {
+        connect(actionEditor, &ActionSettingEditor::triggered, this,
+                [this, key = setting.key] { emit actionTriggered(key); });
+        return;
+    }
+
     connect(editor, &SettingEditor::valueChanged, this,
             [this, key = setting.key](const QVariant& value) {
                 // 不再通过registry直接更改键值, 而是抛给Controller去改
                 // (本质上View层就不应该直接去改变值, 只要负责好界面和事件就行)
                 emit valueChanged(key, value);
             });
+}
+
+void SettingsDialog::setActionStatus(const QString& settingId, const QString& text,
+                                     SettingActionState state) {
+    if (auto* actionEditor = qobject_cast<ActionSettingEditor*>(editors.value(settingId, nullptr));
+        actionEditor != nullptr) {
+        actionEditor->setStatus(text, state);
+        actionEditor->setBusy(state == SettingActionState::Pending);
+    }
 }
 
 void SettingsDialog::setSettingValue(const QString& settingId, const QVariant& value) {
@@ -668,6 +687,17 @@ void SettingsDialog::applyTheme() {
             "QFrame#settingsSection { background: %3; border: 1px solid %6; border-radius: 8px; }"
             "QFrame#settingsSection QWidget { background: transparent; }"
             "QFrame#settingsSection > QWidget#settingsRow { border-top: 1px solid %6; }"
+            "QFrame#settingsSection QLineEdit, QFrame#settingsSection QComboBox {"
+            "background: %1; border: 1px solid %6; border-radius: 6px; padding: 6px 8px;"
+            "color: %4;"
+            "}"
+            "QPushButton#settingActionButton {"
+            "background: #3B82F6; border: none; border-radius: 6px; color: white; padding: 6px "
+            "12px;"
+            "}"
+            "QPushButton#settingActionButton:hover { background: #2563EB; }"
+            "QPushButton#settingActionButton:disabled { background: #94A3B8; }"
+            "QLabel#settingActionStatus { color: %5; }"
             "QLabel#settingsShortcutValue { color: #3B82F6; font-weight: 600; }"
             "QLabel#settingsFixedValue { color: %5; }"
             "QCheckBox { color: %4; spacing: 6px; }"

@@ -58,6 +58,28 @@ TEST(SettingRegistryTest, EditableSettingsStayPersistent) {
     }
 }
 
+TEST(SettingRegistryTest, ActionSettingHasNoValueAndRejectsEmptyText) {
+    SettingRegistry registry;
+    PluginSettings core = registerAboutPage(registry);
+
+    const QString key = QStringLiteral("embeddingTest");
+    const QString title = QStringLiteral("发送测试文本");
+    const QString buttonText = QStringLiteral("测试接口");
+    ASSERT_TRUE(core.registerAction(kGroupId, key, title, QString(), buttonText));
+
+    const QVector<SettingDefinition> settings = registry.settings(kVersionGroupId);
+    ASSERT_EQ(settings.size(), 1);
+    EXPECT_EQ(settings.front().key, QStringLiteral("core/embeddingTest"));
+    EXPECT_EQ(settings.front().type, SettingType::Action);
+    EXPECT_EQ(settings.front().defaultValue.toString(), buttonText);
+    // 动作项只是界面上的一个按钮: 既不占键也不写配置文件
+    EXPECT_FALSE(settings.front().storesValue());
+    EXPECT_FALSE(settings.front().isPersistent());
+
+    EXPECT_FALSE(
+        core.registerAction(kGroupId, QStringLiteral("emptyAction"), title, QString(), QString()));
+}
+
 TEST(SettingRegistryTest, FixedTextSettingRejectsEmptyText) {
     SettingRegistry registry;
     PluginSettings core = registerAboutPage(registry);

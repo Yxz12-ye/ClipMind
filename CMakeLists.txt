@@ -52,10 +52,13 @@ find_package(spdlog CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG REQUIRED)
 find_package(
     Qt6
-    COMPONENTS Core Gui Widgets SvgWidgets
+    COMPONENTS Core Gui Network Widgets SvgWidgets
     CONFIG
     REQUIRED
 )
+if(ENABLE_TESTING)
+    find_package(Qt6 COMPONENTS Test CONFIG REQUIRED)
+endif()
 include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/sqlite-vec.cmake)
 
 qt_add_executable(${PROJECT_NAME} ${SOURCES} ${HEADERS})
@@ -65,7 +68,8 @@ target_sources(${PROJECT_NAME} PRIVATE ${RESOURCES})
 target_link_libraries(${PROJECT_NAME} PRIVATE spdlog::spdlog)
 target_link_libraries(${PROJECT_NAME} PRIVATE unofficial::sqlite3::sqlite3)
 target_link_libraries(${PROJECT_NAME} PRIVATE sqlite_vec)
-target_link_libraries(${PROJECT_NAME} PRIVATE Qt6::Core Qt6::Gui Qt6::Widgets Qt6::SvgWidgets)
+target_link_libraries(${PROJECT_NAME} PRIVATE Qt6::Core Qt6::Gui Qt6::Network Qt6::Widgets
+                                              Qt6::SvgWidgets)
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src

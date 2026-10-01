@@ -180,7 +180,8 @@ MainWindow::MainWindow()
       controller(new UIController(this)),
       settingRegistry(new SettingRegistry(this)),
       settingsController(new SettingsController(settingRegistry, controller->sqlService(),
-                                                SettingService::instance(), this)),
+                                                SettingService::instance(),
+                                                controller->embeddingService(), this)),
       windowPositioner(createWindowPositioner()) {
     setWindowFlag(Qt::FramelessWindowHint);
     setAttribute(Qt::WA_TranslucentBackground);
@@ -202,6 +203,30 @@ MainWindow::MainWindow()
 
     coreSettings.registerPage(QStringLiteral("tags"), QStringLiteral("标签管理"),
                               QStringLiteral("标签显示与自动匹配顺序"), 10);
+    // 向量化服务原来的设置项直接写在 SettingsDialog 里, 重构后统一改成在这里注册定义,
+    // 设置页只是把这些定义渲染出来(见 SettingRegistry)
+    coreSettings.registerPage(QStringLiteral("embedding"), QStringLiteral("向量化"),
+                              QStringLiteral("配置 OpenAI 兼容的 Embeddings 接口"), 15);
+    coreSettings.registerGroup(QStringLiteral("embedding"), QStringLiteral("service"),
+                               QStringLiteral("服务配置"));
+    coreSettings.registerEnum(
+        QStringLiteral("service"), QStringLiteral("embeddingUrlMode"), QStringLiteral("URL 类型"),
+        QStringLiteral("完整接口填写到 /embeddings；Base URL 填写到版本路径，例如 /v1"),
+        {{QStringLiteral("full"), QStringLiteral("完整接口")},
+         {QStringLiteral("base"), QStringLiteral("Base URL")}},
+        QStringLiteral("full"));
+    coreSettings.registerString(QStringLiteral("service"), QStringLiteral("embeddingUrl"),
+                                QStringLiteral("接口 URL"),
+                                QStringLiteral("服务端接收向量化请求的地址"), QString());
+    coreSettings.registerString(QStringLiteral("service"), QStringLiteral("embeddingModel"),
+                                QStringLiteral("模型"),
+                                QStringLiteral("发送给接口的模型标识, 留空则用服务端默认值"),
+                                QString());
+    // 动作项: 按钮文本由注册表给出, 点击后由 SettingsController 执行接口测试
+    coreSettings.registerAction(QStringLiteral("service"), QStringLiteral("embeddingTest"),
+                                QStringLiteral("发送测试文本"),
+                                QStringLiteral("使用固定文本验证接口连通性并检查向量响应"),
+                                QStringLiteral("测试接口"));
     coreSettings.registerPage(QStringLiteral("shortcuts"), QStringLiteral("快捷键"),
                               QStringLiteral("快速呼出 ClipMind"), 20);
     coreSettings.registerPage(QStringLiteral("appearance"), QStringLiteral("外观"),

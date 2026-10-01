@@ -5,8 +5,10 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPushButton>
 #include <QSignalBlocker>
 #include <QSpinBox>
+#include <QVBoxLayout>
 
 SettingEditor::SettingEditor(QWidget* parent) : QWidget(parent) {}
 
@@ -116,4 +118,52 @@ QVariant FixedTextSettingEditor::value() const {
 
 void FixedTextSettingEditor::setValue(const QVariant& value) {
     label->setText(value.toString());
+}
+
+ActionSettingEditor::ActionSettingEditor(const QString& text, QWidget* parent)
+    : SettingEditor(parent) {
+    button = new QPushButton(text, this);
+    button->setObjectName("settingActionButton");
+    status = new QLabel(this);
+    status->setObjectName("settingActionStatus");
+    status->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    status->setWordWrap(true);
+
+    auto* layout = new QVBoxLayout(this);
+    layout->setContentsMargins(0, 0, 0, 0);
+    layout->setSpacing(4);
+    layout->addWidget(button, 0, Qt::AlignRight);
+    layout->addWidget(status);
+
+    connect(button, &QPushButton::clicked, this, &ActionSettingEditor::triggered);
+}
+
+QVariant ActionSettingEditor::value() const {
+    return status->text();
+}
+
+void ActionSettingEditor::setValue(const QVariant& value) {
+    setStatus(value.toString(), SettingActionState::Pending);
+}
+
+void ActionSettingEditor::setStatus(const QString& text, SettingActionState state) {
+    status->setText(text);
+
+    QString color;
+    switch (state) {
+    case SettingActionState::Success:
+        color = QStringLiteral("#16A34A");
+        break;
+    case SettingActionState::Failure:
+        color = QStringLiteral("#DC2626");
+        break;
+    case SettingActionState::Pending:
+        break;  // 中性色: 交给主题, 不额外上色
+    }
+
+    status->setStyleSheet(color.isEmpty() ? QString() : QStringLiteral("color: %1;").arg(color));
+}
+
+void ActionSettingEditor::setBusy(bool busy) {
+    button->setEnabled(!busy);
 }
