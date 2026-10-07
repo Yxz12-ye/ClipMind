@@ -1,5 +1,7 @@
 #pragma once
 
+#include <QByteArray>
+#include <QPoint>
 #include <QVector>
 #include <QWidget>
 
@@ -19,6 +21,10 @@ public:
 
 signals:
     void itemClicked(const QString& content);
+    void itemPinRequested(const QByteArray& hash, bool pinned);
+    void itemDeleteRequested(const QByteArray& hash);
+    void itemTagChangeRequested(const QByteArray& hash, const QString& currentTagName,
+                                const QPoint& globalPos);
 
 private:
     QScrollArea* m_scrollArea;

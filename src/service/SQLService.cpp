@@ -694,6 +694,57 @@ bool SQLService::updateContentTime(const QString& content) {
     return ok;
 }
 
+bool SQLService::setPinned(const QByteArray& hash, bool pinned) {
+    if (!isReady() || hash.isEmpty()) {
+        return false;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "UPDATE ContentItem SET pinned = ? WHERE hash = ?;";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        LogService::warn("SQLService", "prepare setPinned failed: {}", lastError());
+        return false;
+    }
+
+    sqlite3_bind_int(stmt, 1, pinned ? 1 : 0);
+    sqlite3_bind_blob(stmt, 2, hash.constData(), hash.size(), SQLITE_TRANSIENT);
+    const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+    if (!ok) {
+        LogService::warn("SQLService", "setPinned failed: {}", lastError());
+    }
+
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
+bool SQLService::updateItemTag(const QByteArray& hash, const QString& tagName) {
+    if (!isReady() || hash.isEmpty()) {
+        return false;
+    }
+
+    const sqlite3_int64 tagId = searchTag(tagName);
+    if (tagId < 0) {
+        return false;
+    }
+
+    sqlite3_stmt* stmt = nullptr;
+    const char* sql = "UPDATE ContentItem SET tag_id = ? WHERE hash = ?;";
+    if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+        LogService::warn("SQLService", "prepare updateItemTag failed: {}", lastError());
+        return false;
+    }
+
+    sqlite3_bind_int64(stmt, 1, tagId);
+    sqlite3_bind_blob(stmt, 2, hash.constData(), hash.size(), SQLITE_TRANSIENT);
+    const bool ok = sqlite3_step(stmt) == SQLITE_DONE;
+    if (!ok) {
+        LogService::warn("SQLService", "updateItemTag failed: {}", lastError());
+    }
+
+    sqlite3_finalize(stmt);
+    return ok;
+}
+
 bool SQLService::deleteItem(QByteArray hash) {
     if (!isReady()) {
         return false;

@@ -45,6 +45,12 @@ void ContentListWidget::setItems(const QVector<ContentListItemData>& items) {
         auto* itemWidget = new ContentListItemWidget(m_contentWidget);
         itemWidget->setItemData(item);
         connect(itemWidget, &ContentListItemWidget::clicked, this, &ContentListWidget::itemClicked);
+        connect(itemWidget, &ContentListItemWidget::pinRequested, this,
+                &ContentListWidget::itemPinRequested);
+        connect(itemWidget, &ContentListItemWidget::deleteRequested, this,
+                &ContentListWidget::itemDeleteRequested);
+        connect(itemWidget, &ContentListItemWidget::tagChangeRequested, this,
+                &ContentListWidget::itemTagChangeRequested);
         m_contentLayout->addWidget(itemWidget);
     }
 

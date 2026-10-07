@@ -98,6 +98,8 @@ public:
                                  // 根据tag进行一级搜索,
                                  // 然后再用str二级搜索(若str为空就不用二级搜索)
     bool updateContentTime(const QString& content);
+    bool setPinned(const QByteArray& hash, bool pinned);
+    bool updateItemTag(const QByteArray& hash, const QString& tagName);
     bool deleteItem(QByteArray hash);    // 后面再添加其他删除(比如正则表达式删除等)
     QVector<ContentListItemData> get();  // 根据updateTime倒序读取前MAX_ITEM个对象
 

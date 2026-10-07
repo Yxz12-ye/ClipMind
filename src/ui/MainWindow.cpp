@@ -289,6 +289,43 @@ MainWindow::MainWindow()
         controller->requireTagFilter(index.data(TagBarNameRole).toString());
     });
     connect(&contentList, &ContentListWidget::itemClicked, controller, &UIController::pasteContent);
+    connect(&contentList, &ContentListWidget::itemPinRequested, controller,
+            &UIController::setItemPinned);
+    connect(&contentList, &ContentListWidget::itemDeleteRequested, controller,
+            &UIController::deleteItem);
+    connect(&contentList, &ContentListWidget::itemTagChangeRequested, this,
+            [this](const QByteArray& hash, const QString& currentTagName, const QPoint& globalPos) {
+                QMenu menu(this);
+                const bool darkMode = palette().color(QPalette::Window).lightness() < 128;
+                menu.setStyleSheet(
+                    QStringLiteral(
+                        "QMenu { padding: 6px; background: %1; color: %2; border: 1px solid %3; "
+                        "border-radius: 8px; }"
+                        "QMenu::item { padding: 7px 24px 7px 12px; border-radius: 5px; }"
+                        "QMenu::item:selected { background: %4; }")
+                        .arg(darkMode ? QStringLiteral("#252525") : QStringLiteral("#FFFFFF"),
+                             darkMode ? QStringLiteral("#F1F5F9") : QStringLiteral("#1E293B"),
+                             darkMode ? QStringLiteral("#454545") : QStringLiteral("#CBD5E1"),
+                             darkMode ? QStringLiteral("rgba(255, 255, 255, 0.10)")
+                                      : QStringLiteral("rgba(59, 130, 246, 0.12)")));
+
+                const QVector<Tag> tags = controller->getTags();
+                for (const Tag& tag : tags) {
+                    QAction* action = menu.addAction(tag.tagName);
+                    action->setCheckable(true);
+                    action->setChecked(tag.tagName == currentTagName);
+                    action->setData(tag.tagName);
+                }
+
+                if (menu.actions().isEmpty()) {
+                    return;
+                }
+
+                QAction* selected = menu.exec(globalPos);
+                if (selected != nullptr && selected->data().toString() != currentTagName) {
+                    controller->changeItemTag(hash, selected->data().toString());
+                }
+            });
     connect(controller, &UIController::hideWindowRequested, this, [this] {
         if (hideAfterPaste) {
             hideWindow();

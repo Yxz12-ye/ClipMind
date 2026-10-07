@@ -35,6 +35,9 @@ public slots:
     void requireSearch(const QString& text);
     void requireTagFilter(const QString& tagName);
     void pasteContent(const QString& text);
+    void setItemPinned(const QByteArray& hash, bool pinned);
+    void deleteItem(const QByteArray& hash);
+    void changeItemTag(const QByteArray& hash, const QString& tagName);
 
 signals:
     void updateUI(QVector<ContentListItemData> data);

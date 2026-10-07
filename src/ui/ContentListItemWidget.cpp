@@ -1,15 +1,19 @@
 #include "ContentListItemWidget.hpp"
 
+#include <QCursor>
 #include <QFont>
 #include <QFontMetrics>
 #include <QGraphicsDropShadowEffect>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
+#include <QList>
 #include <QMouseEvent>
 #include <QPalette>
 #include <QResizeEvent>
 #include <QStringList>
 #include <QTextLayout>
+#include <QToolButton>
 #include <QVBoxLayout>
 
 namespace {
@@ -64,7 +68,11 @@ ContentListItemWidget::ContentListItemWidget(QWidget* parent)
       m_badgeContainer(new QWidget(this)),
       m_badgeLabel(new QLabel(m_badgeContainer)),
       m_timeLabel(new QLabel(this)),
-      m_bodyLabel(new QLabel(this)) {
+      m_bodyLabel(new QLabel(this)),
+      m_actionPanel(new QWidget(this)),
+      m_pinButton(new QToolButton(m_actionPanel)),
+      m_tagButton(new QToolButton(m_actionPanel)),
+      m_deleteButton(new QToolButton(m_actionPanel)) {
     m_badgeContainer->setAttribute(Qt::WA_TransparentForMouseEvents);
     m_badgeLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
     m_timeLabel->setAttribute(Qt::WA_TransparentForMouseEvents);
@@ -97,6 +105,41 @@ ContentListItemWidget::ContentListItemWidget(QWidget* parent)
     m_bodyLabel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     m_bodyLabel->setFixedHeight(QFontMetrics(bodyFont).lineSpacing() * 2);
 
+    auto* actionLayout = new QHBoxLayout(m_actionPanel);
+    actionLayout->setContentsMargins(0, 0, 0, 0);
+    actionLayout->setSpacing(2);
+
+    const QList<QToolButton*> actionButtons = {m_pinButton, m_tagButton, m_deleteButton};
+    for (QToolButton* button : actionButtons) {
+        button->setCursor(Qt::PointingHandCursor);
+        button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+        button->setMinimumHeight(48);
+        button->setIconSize(QSize(26, 26));
+        actionLayout->addWidget(button);
+    }
+
+    m_pinButton->setIcon(QIcon(QStringLiteral(":/img/pin.svg")));
+    m_tagButton->setIcon(QIcon(QStringLiteral(":/img/tag.svg")));
+    m_deleteButton->setIcon(QIcon(QStringLiteral(":/img/trash.svg")));
+    m_actionPanel->setObjectName(QStringLiteral("itemActions"));
+    for (QToolButton* button : actionButtons) {
+        button->setObjectName(QStringLiteral("itemActionButton"));
+    }
+    m_actionPanel->hide();
+
+    connect(m_pinButton, &QToolButton::clicked, this, [this] {
+        setActionsVisible(false);
+        emit pinRequested(m_hash, !m_pinned);
+    });
+    connect(m_tagButton, &QToolButton::clicked, this, [this] {
+        const QPoint globalPos = m_tagButton->mapToGlobal(QPoint(0, m_tagButton->height()));
+        emit tagChangeRequested(m_hash, m_tagName, globalPos);
+    });
+    connect(m_deleteButton, &QToolButton::clicked, this, [this] {
+        setActionsVisible(false);
+        emit deleteRequested(m_hash);
+    });
+
     headerLayout->addWidget(m_badgeContainer, 0, Qt::AlignLeft | Qt::AlignVCenter);
     headerLayout->addStretch();
     headerLayout->addWidget(m_timeLabel, 0, Qt::AlignRight | Qt::AlignVCenter);
@@ -112,7 +155,8 @@ ContentListItemWidget::ContentListItemWidget(QWidget* parent)
     updateShadowEffect();
     setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
     rootLayout->activate();
-    setFixedHeight(rootLayout->sizeHint().height());
+    const int itemHeight = rootLayout->sizeHint().height();
+    setFixedHeight(itemHeight);
 }
 
 void ContentListItemWidget::setItemData(const ContentListItemData& data) {
@@ -121,6 +165,8 @@ void ContentListItemWidget::setItemData(const ContentListItemData& data) {
 
     m_copyTime = data.copyTime;
     m_updateTime = data.updateTime;
+    m_tagName = data.tag.tagName;
+    m_hash = data.hash;
 
     m_badgeLabel->setText(data.tag.tagName);
     updateTime();
@@ -128,6 +174,7 @@ void ContentListItemWidget::setItemData(const ContentListItemData& data) {
     refreshBodyText();
     updateBadgeStyle();
     m_pinned = data.pinned;
+    updateActionButtons();
     updateShadowEffect();
 }
 
@@ -139,7 +186,11 @@ void ContentListItemWidget::enterEvent(QEnterEvent* event) {
 
 void ContentListItemWidget::leaveEvent(QEvent* event) {
     QWidget::leaveEvent(event);
-    m_hovered = false;
+    const QPoint localCursorPosition = mapFromGlobal(QCursor::pos());
+    m_hovered = rect().contains(localCursorPosition);
+    if (!m_hovered) {
+        setActionsVisible(false);
+    }
     updateShadowEffect();
 }
 
@@ -158,6 +209,16 @@ void ContentListItemWidget::changeEvent(QEvent* event) {
     QWidget::changeEvent(event);
 }
 
+void ContentListItemWidget::mousePressEvent(QMouseEvent* event) {
+    if (event->button() == Qt::RightButton) {
+        setActionsVisible(true);
+        event->accept();
+        return;
+    }
+
+    QWidget::mousePressEvent(event);
+}
+
 void ContentListItemWidget::mouseReleaseEvent(QMouseEvent* event) {
     QWidget::mouseReleaseEvent(event);
 
@@ -166,8 +227,36 @@ void ContentListItemWidget::mouseReleaseEvent(QMouseEvent* event) {
     }
 }
 
+void ContentListItemWidget::setActionsVisible(bool visible) {
+    m_badgeContainer->setVisible(!visible);
+    m_timeLabel->setVisible(!visible);
+    m_bodyLabel->setVisible(!visible);
+
+    if (visible) {
+        const int inset = 12;
+        m_actionPanel->setGeometry(rect().adjusted(inset, inset, -inset, -inset));
+        m_actionPanel->raise();
+    }
+    m_actionPanel->setVisible(visible);
+    if (visible) {
+        updateActionButtons();
+    }
+    updateGeometry();
+}
+
+void ContentListItemWidget::updateActionButtons() {
+    m_pinButton->setToolTip(m_pinned ? QStringLiteral("取消固定") : QStringLiteral("固定"));
+    m_tagButton->setToolTip(QStringLiteral("修改标签"));
+    m_deleteButton->setToolTip(QStringLiteral("删除"));
+}
+
 void ContentListItemWidget::resizeEvent(QResizeEvent* event) {
     QWidget::resizeEvent(event);
+    if (m_actionPanel->isVisible()) {
+        const int inset = 12;
+        m_actionPanel->setGeometry(rect().adjusted(inset, inset, -inset, -inset));
+        m_actionPanel->raise();
+    }
     refreshBodyText();
 }
 
@@ -198,8 +287,14 @@ void ContentListItemWidget::applyTheme() {
                           "background-color: %1;"
                           "border: 1px solid %2;"
                           "border-radius: 10px;"
-                          "}")
-                      .arg(background, border));
+                          "}"
+                          "QWidget#itemActions { background: transparent; }"
+                          "QToolButton#itemActionButton { border: none; border-radius: 6px; "
+                          "background-color: %3; padding: 8px; }"
+                          "QToolButton#itemActionButton:hover { background-color: %4; }")
+                      .arg(background, border,
+                           darkMode ? QStringLiteral("#3A3A3A") : QStringLiteral("#E2E8F0"),
+                           darkMode ? QStringLiteral("#4A4A4A") : QStringLiteral("#CBD5E1")));
     m_timeLabel->setStyleSheet("color: #94A3B8;");
     m_bodyLabel->setStyleSheet(QString("color: %1;").arg(bodyColor));
 }

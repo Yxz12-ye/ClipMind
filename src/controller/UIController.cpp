@@ -71,3 +71,21 @@ void UIController::pasteContent(const QString& text) {
         }
     });
 }
+
+void UIController::setItemPinned(const QByteArray& hash, bool pinned) {
+    if (sql->setPinned(hash, pinned)) {
+        refreshCurrentView();
+    }
+}
+
+void UIController::deleteItem(const QByteArray& hash) {
+    if (sql->deleteItem(hash)) {
+        refreshCurrentView();
+    }
+}
+
+void UIController::changeItemTag(const QByteArray& hash, const QString& tagName) {
+    if (sql->updateItemTag(hash, tagName)) {
+        refreshCurrentView();
+    }
+}
