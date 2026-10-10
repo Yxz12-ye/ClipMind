@@ -16,6 +16,7 @@ target_link_libraries(${TARGET_NAME} PRIVATE
     Qt6::Gui
     spdlog::spdlog
     unofficial::sqlite3::sqlite3
+    sqlite_vec
 )
 
 if(ENABLE_WARNINGS)

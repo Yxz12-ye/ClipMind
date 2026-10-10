@@ -4,6 +4,7 @@
 #include <QTemporaryDir>
 #include <algorithm>
 #include <gtest/gtest.h>
+#include <limits>
 
 #include "service/SQLService.hpp"
 
@@ -228,6 +229,11 @@ TEST(SQLServiceTest, ExistingDatabasePromotesTextAndAddsMissingLinkSystemTag) {
     EXPECT_FALSE(service.updateTag(
         QStringLiteral("LINK"),
         Tag{QStringLiteral("URL"), QString(), SearchMode::None, QColor(), QColor()}));
+
+    const ContentListItemData item{tags[0], QStringLiteral("legacy embedding")};
+    ASSERT_TRUE(service.save(item).isEmpty());
+    ASSERT_TRUE(service.saveEmbedding(item.hash, QStringLiteral("model"), {1.0f}).isEmpty());
+    EXPECT_EQ(service.getEmbedding(item.hash, QStringLiteral("model")), (QVector<float>{1.0f}));
 }
 
 TEST(SQLServiceTest, DeletingTagReassignsAffectedContentToText) {
@@ -261,6 +267,141 @@ TEST(SQLServiceTest, DeletingTagReassignsAffectedContentToText) {
             EXPECT_TRUE(item.tag.isSysTag);
         }
     }
+}
+
+TEST(SQLServiceTest, EmbeddingsPersistAndUpsertWithoutChangingContent) {
+    QTemporaryDir tempDir;
+    ASSERT_TRUE(tempDir.isValid());
+    const QDir dbDir(tempDir.filePath(QStringLiteral("db")));
+    const ContentListItemData item{Tag{QStringLiteral("TEXT"), {}, SearchMode::None},
+                                   QStringLiteral("vector content")};
+    const QString model = QStringLiteral("model-a");
+    {
+        SQLService service(dbDir);
+        ASSERT_TRUE(service.save(item).isEmpty());
+        ASSERT_TRUE(service.saveEmbedding(item.hash, model, {1.0f, 0.0f}).isEmpty());
+        ASSERT_TRUE(service.saveEmbedding(item.hash, model, {0.0f, 1.0f}).isEmpty());
+        EXPECT_EQ(service.getEmbedding(item.hash, model), (QVector<float>{0.0f, 1.0f}));
+        ASSERT_TRUE(service.save(item).isEmpty());
+        EXPECT_EQ(service.getEmbedding(item.hash, model), (QVector<float>{0.0f, 1.0f}));
+    }
+    SQLService service(dbDir);
+    QString error = QStringLiteral("old error");
+    EXPECT_EQ(service.getEmbedding(item.hash, model, &error), (QVector<float>{0.0f, 1.0f}));
+    EXPECT_TRUE(error.isEmpty());
+    const auto results = service.searchByEmbedding({0.0f, 1.0f}, model, 1, &error);
+    ASSERT_TRUE(error.isEmpty()) << error.toStdString();
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(results.front().item.hash, item.hash);
+    EXPECT_NEAR(results.front().distance, 0.0, 1e-6);
+}
+
+TEST(SQLServiceTest, VectorSearchRanksByCosineAndFiltersModelAndDimension) {
+    QTemporaryDir tempDir;
+    ASSERT_TRUE(tempDir.isValid());
+    SQLService service(QDir(tempDir.filePath(QStringLiteral("db"))));
+    const Tag tag{QStringLiteral("TEXT"), {}, SearchMode::None};
+    const ContentListItemData near{tag, QStringLiteral("near")};
+    const ContentListItemData far{tag, QStringLiteral("far")};
+    const ContentListItemData other{tag, QStringLiteral("other")};
+    const ContentListItemData differentDimension{tag, QStringLiteral("dimension")};
+    const QString model = QStringLiteral("model-a");
+    for (const auto& item : {near, far, other, differentDimension}) {
+        ASSERT_TRUE(service.save(item).isEmpty());
+    }
+    ASSERT_TRUE(service.saveEmbedding(near.hash, model, {2.0f, 0.0f}).isEmpty());
+    ASSERT_TRUE(service.saveEmbedding(far.hash, model, {0.0f, 1.0f}).isEmpty());
+    ASSERT_TRUE(
+        service.saveEmbedding(other.hash, QStringLiteral("model-b"), {1.0f, 0.0f}).isEmpty());
+    ASSERT_TRUE(
+        service.saveEmbedding(differentDimension.hash, model, {1.0f, 0.0f, 0.0f}).isEmpty());
+    ASSERT_TRUE(service.setPinned(far.hash, true));
+    QString error;
+    auto results = service.searchByEmbedding({1.0f, 0.0f}, model, 2, &error);
+    ASSERT_TRUE(error.isEmpty()) << error.toStdString();
+    ASSERT_EQ(results.size(), 2);
+    EXPECT_EQ(results[0].item.hash, near.hash);
+    EXPECT_EQ(results[1].item.hash, far.hash);
+    EXPECT_NEAR(results[0].distance, 0.0, 1e-6);
+    EXPECT_NEAR(results[1].distance, 1.0, 1e-6);
+    EXPECT_TRUE(results[1].item.pinned);
+    results = service.searchByEmbedding({1.0f, 0.0f}, model, 1, &error);
+    ASSERT_TRUE(error.isEmpty());
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0].item.hash, near.hash);
+    EXPECT_TRUE(service.searchByEmbedding({1.0f}, model, 1, &error).isEmpty());
+    EXPECT_TRUE(error.isEmpty());
+}
+
+TEST(SQLServiceTest, EmbeddingDeletionIsModelSpecificAndContentDeletionCascades) {
+    QTemporaryDir tempDir;
+    ASSERT_TRUE(tempDir.isValid());
+    SQLService service(QDir(tempDir.filePath(QStringLiteral("db"))));
+    const ContentListItemData item{Tag{QStringLiteral("TEXT"), {}, SearchMode::None},
+                                   QStringLiteral("delete content")};
+    ASSERT_TRUE(service.save(item).isEmpty());
+    ASSERT_TRUE(service.saveEmbedding(item.hash, QStringLiteral("a"), {1.0f}).isEmpty());
+    ASSERT_TRUE(service.saveEmbedding(item.hash, QStringLiteral("b"), {1.0f}).isEmpty());
+    ASSERT_TRUE(service.deleteEmbedding(item.hash, QStringLiteral("a")));
+    EXPECT_TRUE(service.getEmbedding(item.hash, QStringLiteral("a")).isEmpty());
+    EXPECT_FALSE(service.getEmbedding(item.hash, QStringLiteral("b")).isEmpty());
+    ASSERT_TRUE(service.deleteItem(item.hash));
+    QString error;
+    EXPECT_TRUE(service.getEmbedding(item.hash, QStringLiteral("b"), &error).isEmpty());
+    EXPECT_TRUE(error.isEmpty());
+    ASSERT_TRUE(service.save(item).isEmpty());
+    EXPECT_TRUE(service.searchByEmbedding({1.0f}, QStringLiteral("b"), 1, &error).isEmpty());
+    EXPECT_TRUE(error.isEmpty());
+}
+
+TEST(SQLServiceTest, InvalidEmbeddingInputsFailWithoutReplacingStoredVector) {
+    QTemporaryDir tempDir;
+    ASSERT_TRUE(tempDir.isValid());
+    SQLService service(QDir(tempDir.filePath(QStringLiteral("db"))));
+    const ContentListItemData item{Tag{QStringLiteral("TEXT"), {}, SearchMode::None},
+                                   QStringLiteral("validation")};
+    const QString model = QStringLiteral("model");
+    ASSERT_TRUE(service.save(item).isEmpty());
+    ASSERT_TRUE(service.saveEmbedding(item.hash, model, {1.0f, 0.0f}).isEmpty());
+    const QVector<QVector<float>> invalidVectors = {{},
+                                                    {0.0f, 0.0f},
+                                                    {std::numeric_limits<float>::infinity(), 0.0f},
+                                                    {std::numeric_limits<float>::quiet_NaN(), 0.0f},
+                                                    {std::numeric_limits<float>::max(), 0.0f}};
+    for (const auto& embedding : invalidVectors) {
+        EXPECT_FALSE(service.saveEmbedding(item.hash, model, embedding).isEmpty());
+        QString error;
+        EXPECT_TRUE(service.searchByEmbedding(embedding, model, 1, &error).isEmpty());
+        EXPECT_FALSE(error.isEmpty());
+    }
+    EXPECT_FALSE(service.saveEmbedding(item.hash, QStringLiteral(" "), {1.0f}).isEmpty());
+    EXPECT_FALSE(service.saveEmbedding(QByteArray("unknown"), model, {1.0f}).isEmpty());
+    EXPECT_EQ(service.getEmbedding(item.hash, model), (QVector<float>{1.0f, 0.0f}));
+    for (int limit : {0, -1, 101}) {
+        QString error;
+        EXPECT_TRUE(service.searchByEmbedding({1.0f, 0.0f}, model, limit, &error).isEmpty());
+        EXPECT_FALSE(error.isEmpty());
+    }
+}
+
+TEST(SQLServiceTest, EmbeddingInterfacesReportUnavailableDatabase) {
+    QTemporaryDir tempDir;
+    ASSERT_TRUE(tempDir.isValid());
+    const QDir dbDir(tempDir.filePath(QStringLiteral("db")));
+    SQLService initialized(dbDir);
+    ASSERT_FALSE(initialized.getTags().isEmpty());
+    // A database file cannot also serve as a database directory.
+    SQLService service(QDir(dbDir.filePath(DATABASE_NAME)));
+    const QByteArray hash("hash");
+    const QString model = QStringLiteral("model");
+    EXPECT_FALSE(service.saveEmbedding(hash, model, {1.0f}).isEmpty());
+    EXPECT_FALSE(service.deleteEmbedding(hash, model));
+    QString error;
+    EXPECT_TRUE(service.getEmbedding(hash, model, &error).isEmpty());
+    EXPECT_FALSE(error.isEmpty());
+    error.clear();
+    EXPECT_TRUE(service.searchByEmbedding({1.0f}, model, 1, &error).isEmpty());
+    EXPECT_FALSE(error.isEmpty());
 }
 
 int main(int argc, char** argv) {

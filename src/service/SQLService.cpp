@@ -1,11 +1,40 @@
 #include "SQLService.hpp"
 
 #include <QRegularExpression>
+#include <cmath>
+#include <cstring>
+#include <limits>
+#include <memory>
 #include <utility>
 
 #include "LogService.hpp"
 
 namespace {
+
+using Statement = std::unique_ptr<sqlite3_stmt, decltype(&sqlite3_finalize)>;
+static_assert(sizeof(float) == 4, "sqlite-vec requires float32 embeddings");
+
+QString validateEmbedding(const QVector<float>& embedding, const QString& model) {
+    if (model.trimmed().isEmpty()) {
+        return QStringLiteral("embedding model must not be empty");
+    }
+    if (embedding.isEmpty() ||
+        embedding.size() > std::numeric_limits<int>::max() / static_cast<int>(sizeof(float))) {
+        return QStringLiteral("invalid embedding dimension");
+    }
+    double normSquared = 0.0;
+    for (float value : embedding) {
+        if (!std::isfinite(value)) {
+            return QStringLiteral("embedding values must be finite");
+        }
+        normSquared += static_cast<double>(value) * value;
+    }
+    if (normSquared < std::numeric_limits<float>::min() ||
+        normSquared > std::numeric_limits<float>::max()) {
+        return QStringLiteral("embedding squared norm must be in the normal float32 range");
+    }
+    return {};
+}
 
 QString colorToString(const QColor& color) {
     return color.isValid() ? color.name(QColor::HexRgb) : QStringLiteral("#000000");
@@ -253,14 +282,29 @@ SQLService::SQLService(const QDir& databaseDirectory, QObject* parent)
         return;
     }
 
-    if (!execute(TABLE_TAG) || !execute(TABLE_CONTENT)) {
+    char* vecError = nullptr;
+    const int vecRc = sqlite3_vec_init(db, &vecError, nullptr);
+    if (vecRc != SQLITE_OK) {
+        LogService::warn("SQLService", "initialize sqlite-vec failed: {}",
+                         vecError != nullptr ? vecError : sqlite3_errmsg(db));
+    }
+    sqlite3_free(vecError);
+
+    if (vecRc != SQLITE_OK || !execute(TABLE_TAG) || !execute(TABLE_CONTENT) ||
+        !execute("PRAGMA foreign_keys = ON;") ||
+        !execute("CREATE TABLE IF NOT EXISTS ContentEmbedding ("
+                 "hash BLOB NOT NULL REFERENCES ContentItem(hash) ON DELETE CASCADE, "
+                 "model TEXT NOT NULL, dimensions INTEGER NOT NULL CHECK(dimensions > 0), "
+                 "embedding BLOB NOT NULL CHECK(typeof(embedding) = 'blob' "
+                 "AND length(embedding) = dimensions * 4), PRIMARY KEY(hash, model));"
+                 "CREATE INDEX IF NOT EXISTS ContentEmbedding_model_dimensions "
+                 "ON ContentEmbedding(model, dimensions);")) {
         sqlite3_close(db);
         db = nullptr;
         return;
     }
 
-    ensurePriorityColumn();                // 兼容旧数据库(缺少 priority 列)
-    execute("PRAGMA foreign_keys = ON;");  // 删除标签时自动将关联内容的 tag_id 置空
+    ensurePriorityColumn();  // 兼容旧数据库(缺少 priority 列)
 
     if (sqlite3_prepare_v2(db, tagSQL, -1, &tagStmt, nullptr) != SQLITE_OK ||
         sqlite3_prepare_v2(db, contentSQL, -1, &contentStmt, nullptr) != SQLITE_OK ||
@@ -285,6 +329,159 @@ SQLService::~SQLService() {
     sqlite3_finalize(contentStmt);
     sqlite3_finalize(searchTagStmt);
     sqlite3_close(db);
+}
+
+QString SQLService::saveEmbedding(const QByteArray& hash, const QString& model,
+                                  const QVector<float>& embedding) {
+    if (!isReady()) {
+        return lastError();
+    }
+    const QString validationError = validateEmbedding(embedding, model);
+    if (!validationError.isEmpty()) {
+        return validationError;
+    }
+    if (hash.isEmpty()) {
+        return QStringLiteral("content hash must not be empty");
+    }
+
+    sqlite3_stmt* raw = nullptr;
+    const int prepareRc = sqlite3_prepare_v2(
+        db,
+        "INSERT INTO ContentEmbedding(hash, model, dimensions, embedding) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(hash, model) DO UPDATE SET dimensions = excluded.dimensions, "
+        "embedding = excluded.embedding;",
+        -1, &raw, nullptr);
+    Statement stmt(raw, sqlite3_finalize);
+    if (prepareRc != SQLITE_OK) {
+        return lastError();
+    }
+    const QByteArray modelUtf8 = model.toUtf8();
+    if (sqlite3_bind_blob64(raw, 1, hash.constData(), hash.size(), SQLITE_TRANSIENT) != SQLITE_OK ||
+        sqlite3_bind_text64(raw, 2, modelUtf8.constData(), modelUtf8.size(), SQLITE_TRANSIENT,
+                            SQLITE_UTF8) != SQLITE_OK ||
+        sqlite3_bind_int64(raw, 3, embedding.size()) != SQLITE_OK ||
+        sqlite3_bind_blob64(raw, 4, embedding.constData(), embedding.size() * sizeof(float),
+                            SQLITE_TRANSIENT) != SQLITE_OK ||
+        sqlite3_step(raw) != SQLITE_DONE) {
+        return lastError();
+    }
+    return {};
+}
+
+QVector<float> SQLService::getEmbedding(const QByteArray& hash, const QString& model,
+                                        QString* error) const {
+    QString localError;
+    if (error == nullptr) {
+        error = &localError;
+    }
+    error->clear();
+    if (!isReady()) {
+        *error = lastError();
+        return {};
+    }
+    sqlite3_stmt* raw = nullptr;
+    const int prepareRc = sqlite3_prepare_v2(
+        db, "SELECT embedding FROM ContentEmbedding WHERE hash = ? AND model = ?;", -1, &raw,
+        nullptr);
+    Statement stmt(raw, sqlite3_finalize);
+    const QByteArray modelUtf8 = model.toUtf8();
+    if (prepareRc != SQLITE_OK ||
+        sqlite3_bind_blob64(raw, 1, hash.constData(), hash.size(), SQLITE_TRANSIENT) != SQLITE_OK ||
+        sqlite3_bind_text64(raw, 2, modelUtf8.constData(), modelUtf8.size(), SQLITE_TRANSIENT,
+                            SQLITE_UTF8) != SQLITE_OK) {
+        *error = lastError();
+        return {};
+    }
+    const int rc = sqlite3_step(raw);
+    if (rc == SQLITE_DONE) {
+        return {};
+    }
+    if (rc != SQLITE_ROW) {
+        *error = lastError();
+        return {};
+    }
+    const int bytes = sqlite3_column_bytes(raw, 0);
+    const void* blob = sqlite3_column_blob(raw, 0);
+    if (blob == nullptr || bytes <= 0 || bytes % static_cast<int>(sizeof(float)) != 0) {
+        *error = QStringLiteral("invalid stored embedding");
+        return {};
+    }
+    QVector<float> result(bytes / static_cast<int>(sizeof(float)));
+    std::memcpy(result.data(), blob, bytes);
+    return result;
+}
+
+bool SQLService::deleteEmbedding(const QByteArray& hash, const QString& model) {
+    if (!isReady()) {
+        return false;
+    }
+    sqlite3_stmt* raw = nullptr;
+    const int prepareRc = sqlite3_prepare_v2(
+        db, "DELETE FROM ContentEmbedding WHERE hash = ? AND model = ?;", -1, &raw, nullptr);
+    Statement stmt(raw, sqlite3_finalize);
+    const QByteArray modelUtf8 = model.toUtf8();
+    return prepareRc == SQLITE_OK &&
+           sqlite3_bind_blob64(raw, 1, hash.constData(), hash.size(), SQLITE_TRANSIENT) ==
+               SQLITE_OK &&
+           sqlite3_bind_text64(raw, 2, modelUtf8.constData(), modelUtf8.size(), SQLITE_TRANSIENT,
+                               SQLITE_UTF8) == SQLITE_OK &&
+           sqlite3_step(raw) == SQLITE_DONE;
+}
+
+QVector<VectorSearchResult> SQLService::searchByEmbedding(const QVector<float>& embedding,
+                                                          const QString& model, int limit,
+                                                          QString* error) const {
+    QString localError;
+    if (error == nullptr) {
+        error = &localError;
+    }
+    *error = isReady() ? validateEmbedding(embedding, model) : lastError();
+    if (!error->isEmpty()) {
+        return {};
+    }
+    if (limit < 1 || limit > MAX_RESULT) {
+        *error = QStringLiteral("search limit must be between 1 and %1").arg(MAX_RESULT);
+        return {};
+    }
+
+    // Scalar distance search supports different embedding dimensions without rebuilding vec0
+    // tables.
+    const char* sql =
+        "SELECT t.tagName, t.rule, t.tagNameColor, t.tagBackColor, t.isSysTag, t.mode, "
+        "c.content, c.copyTime, c.updateTime, c.hash, c.pinned, "
+        "vec_distance_cosine(e.embedding, ?) AS distance "
+        "FROM ContentEmbedding e JOIN ContentItem c ON c.hash = e.hash "
+        "LEFT JOIN Tag t ON c.tag_id = t.id "
+        "WHERE e.model = ? AND e.dimensions = ? ORDER BY distance ASC, c.id ASC LIMIT ?;";
+    sqlite3_stmt* raw = nullptr;
+    const int prepareRc = sqlite3_prepare_v2(db, sql, -1, &raw, nullptr);
+    Statement stmt(raw, sqlite3_finalize);
+    const QByteArray modelUtf8 = model.toUtf8();
+    if (prepareRc != SQLITE_OK ||
+        sqlite3_bind_blob64(raw, 1, embedding.constData(), embedding.size() * sizeof(float),
+                            SQLITE_TRANSIENT) != SQLITE_OK ||
+        sqlite3_bind_text64(raw, 2, modelUtf8.constData(), modelUtf8.size(), SQLITE_TRANSIENT,
+                            SQLITE_UTF8) != SQLITE_OK ||
+        sqlite3_bind_int64(raw, 3, embedding.size()) != SQLITE_OK ||
+        sqlite3_bind_int(raw, 4, limit) != SQLITE_OK) {
+        *error = lastError();
+        return {};
+    }
+    QVector<VectorSearchResult> results;
+    int rc;
+    while ((rc = sqlite3_step(raw)) == SQLITE_ROW) {
+        const double distance = sqlite3_column_double(raw, 11);
+        if (sqlite3_column_type(raw, 11) == SQLITE_NULL || !std::isfinite(distance)) {
+            *error = QStringLiteral("invalid cosine distance");
+            return {};
+        }
+        results.push_back({makeContentItem(raw), distance});
+    }
+    if (rc != SQLITE_DONE) {
+        *error = lastError();
+        return {};
+    }
+    return results;
 }
 
 QString SQLService::save(const Tag& tag) {

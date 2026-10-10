@@ -8,6 +8,7 @@
 #include <QVector>
 
 #include "../struct.hpp"
+#include "sqlite-vec.h"
 #include "sqlite3.h"
 
 // 配置文件目录(直接硬编码)
@@ -44,6 +45,11 @@
     "    hash BLOB UNIQUE,       -- 内容唯一标识，设为 UNIQUE\n"                    \
     "    pinned INTEGER DEFAULT 0\n"                                                \
     ");"
+
+struct VectorSearchResult {
+    ContentListItemData item;
+    double distance = 0.0;  // Cosine distance, smaller values indicate closer matches.
+};
 
 class SQLService : public QObject {
     Q_OBJECT
@@ -102,6 +108,20 @@ public:
     bool updateItemTag(const QByteArray& hash, const QString& tagName);
     bool deleteItem(QByteArray hash);    // 后面再添加其他删除(比如正则表达式删除等)
     QVector<ContentListItemData> get();  // 根据updateTime倒序读取前MAX_ITEM个对象
+
+    // Call save(content) first. Vectors are isolated by model and dimension.
+    // Empty model/vector, non-finite values and zero vectors are rejected.
+    // Squared norm must fit in the normal float32 range used by sqlite-vec.
+    QString saveEmbedding(const QByteArray& hash, const QString& model,
+                          const QVector<float>& embedding);
+    QVector<float> getEmbedding(const QByteArray& hash, const QString& model,
+                                QString* error = nullptr) const;
+    bool deleteEmbedding(const QByteArray& hash, const QString& model);
+    // Exact cosine search, ordered by distance; limit must be in [1, MAX_RESULT].
+    // Missing embeddings yield empty results; error distinguishes failure from no matches.
+    QVector<VectorSearchResult> searchByEmbedding(const QVector<float>& embedding,
+                                                  const QString& model, int limit = 25,
+                                                  QString* error = nullptr) const;
 
     // 标签管理: 增删改查、排序与单标签匹配
     QVector<Tag> getTags() const;                // 全部标签, 包含 TEXT/LINK 系统保留标签
