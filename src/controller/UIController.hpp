@@ -23,8 +23,14 @@ private:
         EmbeddingConfig config;
     };
     QHash<quint64, PendingEmbedding> pendingEmbeddings;
+    quint64 semanticRequestId = 0;
+    EmbeddingConfig semanticConfig;
+    QVector<float> semanticEmbedding;
+    QString semanticModel;
 
     void refreshCurrentView();
+    void refreshSemanticSearch();
+    void resetSemanticSearch();
     void embedContent(const ContentListItemData& data);
 
 public:

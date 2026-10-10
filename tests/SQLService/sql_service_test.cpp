@@ -404,6 +404,73 @@ TEST(SQLServiceTest, EmbeddingInterfacesReportUnavailableDatabase) {
     EXPECT_FALSE(error.isEmpty());
 }
 
+TEST(SQLServiceTest, VectorSearchFiltersTagBeforeLimit) {
+    QTemporaryDir tempDir;
+    ASSERT_TRUE(tempDir.isValid());
+    SQLService service(QDir(tempDir.filePath(QStringLiteral("db"))));
+    const ContentListItemData near{Tag{QStringLiteral("TEXT"), {}, SearchMode::None},
+                                   QStringLiteral("near")};
+    const ContentListItemData tagged{Tag{QStringLiteral("WORK"), {}, SearchMode::None},
+                                     QStringLiteral("tagged")};
+    const QString model = QStringLiteral("model");
+    ASSERT_TRUE(service.save(near).isEmpty());
+    ASSERT_TRUE(service.save(tagged).isEmpty());
+    ASSERT_TRUE(service.saveEmbedding(near.hash, model, {1.0f, 0.0f}).isEmpty());
+    ASSERT_TRUE(service.saveEmbedding(tagged.hash, model, {0.0f, 1.0f}).isEmpty());
+    QString error;
+    const auto matches =
+        service.searchByEmbedding({1.0f, 0.0f}, model, QStringLiteral("WORK"), 1, &error);
+    ASSERT_TRUE(error.isEmpty()) << error.toStdString();
+    ASSERT_EQ(matches.size(), 1);
+    EXPECT_EQ(matches.front().item.hash, tagged.hash);
+    EXPECT_TRUE(service.searchByEmbedding({1.0f, 0.0f}, model, QStringLiteral("missing"), 1, &error)
+                    .isEmpty());
+    EXPECT_TRUE(error.isEmpty());
+}
+
+TEST(SQLServiceTest, RegexSearchSupportsOrdinaryTextAndInvalidPatternsGloballyAndByTag) {
+    QTemporaryDir tempDir;
+    ASSERT_TRUE(tempDir.isValid());
+    SQLService service(QDir(tempDir.filePath(QStringLiteral("db"))));
+    Tag tag{QStringLiteral("WORK"), {}, SearchMode::None};
+    for (const QString& text : {QStringLiteral("Project 123"), QStringLiteral("Project notes"),
+                                QStringLiteral("[draft")}) {
+        ASSERT_TRUE(service.save(ContentListItemData{tag, text}).isEmpty());
+    }
+    for (const QString& query :
+         {QStringLiteral("project"), QStringLiteral("^project \\d+$"), QStringLiteral("[draft")}) {
+        const auto all = service.search(query, SearchMode::Regex);
+        const auto filtered = service.search(query, QString(), tag, SearchMode::Regex);
+        EXPECT_EQ(all.size(), query == QLatin1String("project") ? 2 : 1);
+        ASSERT_EQ(filtered.size(), all.size());
+        for (qsizetype i = 0; i < all.size(); ++i) {
+            EXPECT_EQ(filtered[i].hash, all[i].hash);
+        }
+    }
+}
+
+TEST(SQLServiceTest, TagRegexSearchFindsMatchesBeyondFirstResultWindow) {
+    QTemporaryDir tempDir;
+    ASSERT_TRUE(tempDir.isValid());
+    SQLService service(QDir(tempDir.filePath(QStringLiteral("db"))));
+    Tag tag{QStringLiteral("WORK"), {}, SearchMode::None};
+    const QDateTime oldTime = QDateTime::fromSecsSinceEpoch(100);
+    const QDateTime newTime = QDateTime::fromSecsSinceEpoch(200);
+    ASSERT_TRUE(
+        service.save(ContentListItemData{tag, QStringLiteral("target 123"), oldTime, oldTime})
+            .isEmpty());
+    for (int i = 0; i < 105; ++i) {
+        ASSERT_TRUE(
+            service
+                .save(ContentListItemData{tag, QStringLiteral("noise %1").arg(i), newTime, newTime})
+                .isEmpty());
+    }
+    const auto results =
+        service.search(QStringLiteral("^target \\d+$"), QString(), tag, SearchMode::Regex);
+    ASSERT_EQ(results.size(), 1);
+    EXPECT_EQ(results[0].content, QStringLiteral("target 123"));
+}
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     ::testing::InitGoogleTest(&argc, argv);

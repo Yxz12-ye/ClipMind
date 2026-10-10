@@ -5,6 +5,25 @@
 #include "service/LogService.hpp"
 #include "service/SettingService.hpp"
 
+namespace {
+
+QString embeddingModelKey(const EmbeddingConfig& config, const EmbeddingResult& result) {
+    // Configured aliases remain stable; unnamed server defaults fall back to an endpoint key.
+    QString model = config.model.trimmed();
+    if (model.isEmpty()) {
+        model = result.model.trimmed();
+    }
+    if (model.isEmpty()) {
+        model = QStringLiteral("default@%1:%2")
+                    .arg(config.urlMode == EmbeddingUrlMode::BaseUrl ? QStringLiteral("base")
+                                                                     : QStringLiteral("endpoint"),
+                         config.url.trimmed());
+    }
+    return model;
+}
+
+}  // namespace
+
 UIController::UIController(QObject* parent)
     : UIController(createCopyEventListener(), new EmbeddingService(), new SQLService(), parent) {
     if (listener != nullptr) {
@@ -32,33 +51,38 @@ UIController::UIController(AbstractCopyEventListener* listener, EmbeddingService
     }
     connect(embedding, &EmbeddingService::embeddingSucceeded, this,
             [this](quint64 requestId, const EmbeddingResult& result) {
+                if (requestId == semanticRequestId) {
+                    semanticRequestId = 0;
+                    semanticEmbedding = result.embedding;
+                    semanticModel = embeddingModelKey(semanticConfig, result);
+                    refreshCurrentView();
+                    return;
+                }
                 auto it = pendingEmbeddings.find(requestId);
                 if (it == pendingEmbeddings.end()) {
                     return;
                 }
                 const PendingEmbedding pending = it.value();
                 pendingEmbeddings.erase(it);
-                // Use the configured identifier for aliases. Scope unnamed server defaults to URL.
-                QString model = pending.config.model.trimmed();
-                if (model.isEmpty()) {
-                    model = result.model.trimmed();
-                }
-                if (model.isEmpty()) {
-                    model = QStringLiteral("default@%1:%2")
-                                .arg(pending.config.urlMode == EmbeddingUrlMode::BaseUrl
-                                         ? QStringLiteral("base")
-                                         : QStringLiteral("endpoint"),
-                                     pending.config.url.trimmed());
-                }
+                const QString model = embeddingModelKey(pending.config, result);
                 const QString error =
                     this->sql->saveEmbedding(pending.hash, model, result.embedding);
                 if (!error.isEmpty()) {
                     LogService::warn("UIController", "save embedding request #{} failed: {}",
                                      requestId, error);
+                } else if (currentSearchMode == SearchMode::Semantics) {
+                    refreshCurrentView();
                 }
             });
     connect(embedding, &EmbeddingService::embeddingFailed, this,
             [this](quint64 requestId, const EmbeddingError& error) {
+                if (requestId == semanticRequestId) {
+                    semanticRequestId = 0;
+                    LogService::warn("UIController", "semantic search request #{} failed: {}",
+                                     requestId, error.message);
+                    emit updateUI({});
+                    return;
+                }
                 if (pendingEmbeddings.remove(requestId) != 0) {
                     LogService::warn("UIController", "clipboard embedding request #{} failed: {}",
                                      requestId, error.message);
@@ -67,6 +91,7 @@ UIController::UIController(AbstractCopyEventListener* listener, EmbeddingService
 }
 
 UIController::~UIController() {
+    resetSemanticSearch();
     const auto requests = pendingEmbeddings.keys();
     pendingEmbeddings.clear();
     for (quint64 requestId : requests) {
@@ -83,7 +108,65 @@ void UIController::reloadEmbeddingConfig() {
         settings->get(QStringLiteral("core/embeddingUrlMode")).toString() == QLatin1String("base")
             ? EmbeddingUrlMode::BaseUrl
             : EmbeddingUrlMode::FullEndpoint;
-    embedding->setConfig(config);
+    if (config != embedding->config()) {
+        embedding->setConfig(config);
+        resetSemanticSearch();
+        if (currentSearchMode == SearchMode::Semantics) {
+            refreshCurrentView();
+        }
+    }
+}
+
+void UIController::resetSemanticSearch() {
+    const quint64 requestId = semanticRequestId;
+    semanticRequestId = 0;
+    semanticEmbedding.clear();
+    semanticModel.clear();
+    semanticConfig = {};
+    if (requestId != 0) {
+        embedding->cancelRequest(requestId);
+    }
+}
+
+void UIController::refreshSemanticSearch() {
+    const EmbeddingConfig config = embedding->config();
+    if (semanticConfig != config) {
+        resetSemanticSearch();
+        semanticConfig = config;
+    }
+    if (semanticEmbedding.isEmpty()) {
+        if (semanticRequestId != 0) {
+            return;
+        }
+        emit updateUI({});
+        if (config.url.trimmed().isEmpty()) {
+            LogService::warn("UIController", "semantic search requires an embedding endpoint");
+            return;
+        }
+        semanticRequestId = embedding->embedText(currentSearchText);
+        return;
+    }
+
+    QString error;
+    const auto matches =
+        sql->searchByEmbedding(semanticEmbedding, semanticModel, currentTagName, 100, &error);
+    if (!error.isEmpty()) {
+        LogService::warn("UIController", "semantic search failed: {}", error);
+    }
+    QVector<ContentListItemData> items;
+    items.reserve(matches.size());
+    LogService::debug("UIController", "semantic search: {} matches (model: '{}', tag: '{}')",
+                      matches.size(), semanticModel, currentTagName);
+    qsizetype rank = 0;
+    for (const auto& match : matches) {
+        LogService::debug(
+            "UIController",
+            "semantic match #{}: similarity={:.2f}%, distance={:.6f}, hash={}, content='{}'",
+            ++rank, (1.0 - match.distance) * 100.0, match.distance,
+            QString::fromLatin1(match.item.hash.toHex()), match.item.content.left(80).simplified());
+        items.push_back(match.item);
+    }
+    emit updateUI(items);
 }
 
 void UIController::embedContent(const ContentListItemData& data) {
@@ -121,6 +204,10 @@ QVector<Tag> UIController::getTags() const {
 }
 
 void UIController::refreshCurrentView() {
+    if (currentSearchMode == SearchMode::Semantics && !currentSearchText.trimmed().isEmpty()) {
+        refreshSemanticSearch();
+        return;
+    }
     if (!currentTagName.isEmpty()) {
         Tag tag;
         tag.tagName = currentTagName;
@@ -154,8 +241,14 @@ void UIController::onCopyTrigged() {
 }
 
 void UIController::requireSearch(const QString& text) {
-    currentSearchText = text;
-    currentSearchMode = SearchMode::None;
+    const bool semantic = text.startsWith(QLatin1String("# "));
+    const SearchMode mode = semantic ? SearchMode::Semantics : SearchMode::Regex;
+    const QString query = semantic ? text.mid(2).trimmed() : text;
+    if (currentSearchMode != mode || currentSearchText != query) {
+        resetSemanticSearch();
+    }
+    currentSearchText = query;
+    currentSearchMode = mode;
     refreshCurrentView();
 }
 

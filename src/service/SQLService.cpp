@@ -36,6 +36,15 @@ QString validateEmbedding(const QVector<float>& embedding, const QString& model)
     return {};
 }
 
+QRegularExpression searchExpression(const QString& text) {
+    QRegularExpression expression(text, QRegularExpression::CaseInsensitiveOption);
+    if (!expression.isValid()) {
+        // Incomplete patterns still work as literal searches while typing.
+        expression.setPattern(QRegularExpression::escape(text));
+    }
+    return expression;
+}
+
 QString colorToString(const QColor& color) {
     return color.isValid() ? color.name(QColor::HexRgb) : QStringLiteral("#000000");
 }
@@ -121,7 +130,8 @@ ContentListItemData SQLService::makeContentItem(sqlite3_stmt* stmt) const {
     return item;
 }
 
-QVector<ContentListItemData> SQLService::searchByTag(sqlite3_int64 tagId, const QString& str) {
+QVector<ContentListItemData> SQLService::searchByTag(sqlite3_int64 tagId, const QString& str,
+                                                     SearchMode mode) {
     QVector<ContentListItemData> results;
     if (!isReady()) {
         return results;
@@ -134,11 +144,16 @@ QVector<ContentListItemData> SQLService::searchByTag(sqlite3_int64 tagId, const 
         "LEFT JOIN Tag t ON c.tag_id = t.id "
         "WHERE c.tag_id = ? ";
 
-    if (!str.trimmed().isEmpty()) {
+    const bool hasText = !str.trimmed().isEmpty();
+    const bool useRegex = hasText && mode == SearchMode::Regex;
+    const QRegularExpression regex =
+        useRegex ? searchExpression(str.trimmed()) : QRegularExpression();
+    if (hasText && !useRegex) {
         sql += "AND c.content LIKE ? ";
     }
 
-    sql += "ORDER BY c.pinned DESC, c.updateTime DESC LIMIT ?;";
+    sql += "ORDER BY c.pinned DESC, c.updateTime DESC ";
+    sql += useRegex ? ";" : "LIMIT ?;";
 
     sqlite3_stmt* stmt = nullptr;
     if (sqlite3_prepare_v2(db, sql.toUtf8().constData(), -1, &stmt, nullptr) != SQLITE_OK) {
@@ -148,14 +163,19 @@ QVector<ContentListItemData> SQLService::searchByTag(sqlite3_int64 tagId, const 
 
     int bindIndex = 1;
     sqlite3_bind_int64(stmt, bindIndex++, tagId);
-    if (!str.trimmed().isEmpty()) {
+    if (hasText && !useRegex) {
         const QString pattern = QStringLiteral("%") + str + QStringLiteral("%");
         sqlite3_bind_text(stmt, bindIndex++, pattern.toUtf8().constData(), -1, SQLITE_TRANSIENT);
     }
-    sqlite3_bind_int(stmt, bindIndex, MAX_RESULT);
+    if (!useRegex) {
+        sqlite3_bind_int(stmt, bindIndex, MAX_RESULT);
+    }
 
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        results.push_back(makeContentItem(stmt));
+    while (results.size() < MAX_RESULT && sqlite3_step(stmt) == SQLITE_ROW) {
+        ContentListItemData item = makeContentItem(stmt);
+        if (!useRegex || regex.match(item.content).hasMatch()) {
+            results.push_back(std::move(item));
+        }
     }
 
     sqlite3_finalize(stmt);
@@ -431,6 +451,13 @@ bool SQLService::deleteEmbedding(const QByteArray& hash, const QString& model) {
 QVector<VectorSearchResult> SQLService::searchByEmbedding(const QVector<float>& embedding,
                                                           const QString& model, int limit,
                                                           QString* error) const {
+    return searchByEmbedding(embedding, model, QString(), limit, error);
+}
+
+QVector<VectorSearchResult> SQLService::searchByEmbedding(const QVector<float>& embedding,
+                                                          const QString& model,
+                                                          const QString& tagName, int limit,
+                                                          QString* error) const {
     QString localError;
     if (error == nullptr) {
         error = &localError;
@@ -452,18 +479,24 @@ QVector<VectorSearchResult> SQLService::searchByEmbedding(const QVector<float>& 
         "vec_distance_cosine(e.embedding, ?) AS distance "
         "FROM ContentEmbedding e JOIN ContentItem c ON c.hash = e.hash "
         "LEFT JOIN Tag t ON c.tag_id = t.id "
-        "WHERE e.model = ? AND e.dimensions = ? ORDER BY distance ASC, c.id ASC LIMIT ?;";
+        "WHERE e.model = ? AND e.dimensions = ? AND (? = '' OR t.tagName = ?) "
+        "ORDER BY distance ASC, c.id ASC LIMIT ?;";
     sqlite3_stmt* raw = nullptr;
     const int prepareRc = sqlite3_prepare_v2(db, sql, -1, &raw, nullptr);
     Statement stmt(raw, sqlite3_finalize);
     const QByteArray modelUtf8 = model.toUtf8();
+    const QByteArray tagUtf8 = tagName.toUtf8();
     if (prepareRc != SQLITE_OK ||
         sqlite3_bind_blob64(raw, 1, embedding.constData(), embedding.size() * sizeof(float),
                             SQLITE_TRANSIENT) != SQLITE_OK ||
         sqlite3_bind_text64(raw, 2, modelUtf8.constData(), modelUtf8.size(), SQLITE_TRANSIENT,
                             SQLITE_UTF8) != SQLITE_OK ||
         sqlite3_bind_int64(raw, 3, embedding.size()) != SQLITE_OK ||
-        sqlite3_bind_int(raw, 4, limit) != SQLITE_OK) {
+        sqlite3_bind_text64(raw, 4, tagUtf8.constData(), tagUtf8.size(), SQLITE_TRANSIENT,
+                            SQLITE_UTF8) != SQLITE_OK ||
+        sqlite3_bind_text64(raw, 5, tagUtf8.constData(), tagUtf8.size(), SQLITE_TRANSIENT,
+                            SQLITE_UTF8) != SQLITE_OK ||
+        sqlite3_bind_int(raw, 6, limit) != SQLITE_OK) {
         *error = lastError();
         return {};
     }
@@ -816,34 +849,29 @@ QVector<ContentListItemData> SQLService::search(QString rule, SearchMode mode) {
     }
 
     if (mode == SearchMode::Regex) {
-        const QRegularExpression regex(trimmedRule);
-        if (regex.isValid()) {
-            sqlite3_stmt* stmt = nullptr;
-            const char* sql =
-                "SELECT t.tagName, t.rule, t.tagNameColor, t.tagBackColor, t.isSysTag, t.mode, "
-                "c.content, c.copyTime, c.updateTime, c.hash, c.pinned "
-                "FROM ContentItem c "
-                "LEFT JOIN Tag t ON c.tag_id = t.id "
-                "ORDER BY c.pinned DESC, c.updateTime DESC;";
+        const QRegularExpression regex = searchExpression(trimmedRule);
+        sqlite3_stmt* stmt = nullptr;
+        const char* sql =
+            "SELECT t.tagName, t.rule, t.tagNameColor, t.tagBackColor, t.isSysTag, t.mode, "
+            "c.content, c.copyTime, c.updateTime, c.hash, c.pinned "
+            "FROM ContentItem c "
+            "LEFT JOIN Tag t ON c.tag_id = t.id "
+            "ORDER BY c.pinned DESC, c.updateTime DESC;";
 
-            if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-                LogService::warn("SQLService", "prepare regex search failed: {}", lastError());
-                return results;
-            }
-
-            while (sqlite3_step(stmt) == SQLITE_ROW && results.size() < MAX_RESULT) {
-                ContentListItemData item = makeContentItem(stmt);
-                if (regex.match(item.content).hasMatch()) {
-                    results.push_back(std::move(item));
-                }
-            }
-
-            sqlite3_finalize(stmt);
-            return results;
-        } else {
-            LogService::warn("SQLService", "invalid regular expression!");
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+            LogService::warn("SQLService", "prepare regex search failed: {}", lastError());
             return results;
         }
+
+        while (results.size() < MAX_RESULT && sqlite3_step(stmt) == SQLITE_ROW) {
+            ContentListItemData item = makeContentItem(stmt);
+            if (regex.match(item.content).hasMatch()) {
+                results.push_back(std::move(item));
+            }
+        }
+
+        sqlite3_finalize(stmt);
+        return results;
     }
 
     if (mode == SearchMode::None) {
@@ -856,14 +884,13 @@ QVector<ContentListItemData> SQLService::search(QString rule, SearchMode mode) {
 QVector<ContentListItemData> SQLService::search(QString str, QString rule, Tag& tag,
                                                 SearchMode mode) {
     Q_UNUSED(rule);
-    Q_UNUSED(mode);
 
     const sqlite3_int64 tagId = searchTag(tag.tagName);
     if (tagId < 0) {
         return {};
     }
 
-    return searchByTag(tagId, str);
+    return searchByTag(tagId, str, mode);
 }
 
 bool SQLService::updateContentTime(const QString& content) {

@@ -58,7 +58,8 @@ private:
     bool execute(const char* sql);
     bool resetStatement(sqlite3_stmt* stmt) const;
     QString lastError() const;
-    QVector<ContentListItemData> searchByTag(sqlite3_int64 tagId, const QString& str);
+    QVector<ContentListItemData> searchByTag(sqlite3_int64 tagId, const QString& str,
+                                             SearchMode mode);
     ContentListItemData makeContentItem(sqlite3_stmt* stmt) const;
 
     bool clear(QDateTime time);  // 把time以前的条目删除(数据库中对应的字段是updateTime)
@@ -122,6 +123,10 @@ public:
     QVector<VectorSearchResult> searchByEmbedding(const QVector<float>& embedding,
                                                   const QString& model, int limit = 25,
                                                   QString* error = nullptr) const;
+    // Apply the tag filter before ranking/limiting; an empty tag name searches all content.
+    QVector<VectorSearchResult> searchByEmbedding(const QVector<float>& embedding,
+                                                  const QString& model, const QString& tagName,
+                                                  int limit = 25, QString* error = nullptr) const;
 
     // 标签管理: 增删改查、排序与单标签匹配
     QVector<Tag> getTags() const;                // 全部标签, 包含 TEXT/LINK 系统保留标签

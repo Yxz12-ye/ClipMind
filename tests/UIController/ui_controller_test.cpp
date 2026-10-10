@@ -123,6 +123,14 @@ protected:
         embedding.setConfig(server.config());
         controller = std::make_unique<UIController>(&listener, &embedding, sql.get());
     }
+
+    void saveVector(const QString& text, const QVector<float>& vector,
+                    const QString& tagName = QStringLiteral("TEXT"),
+                    const QString& model = QStringLiteral("model-a")) {
+        const ContentListItemData item{Tag{tagName, {}, SearchMode::None}, text};
+        ASSERT_TRUE(sql->save(item).isEmpty());
+        ASSERT_TRUE(sql->saveEmbedding(item.hash, model, vector).isEmpty());
+    }
 };
 
 TEST_F(UIControllerEmbeddingTest, SavesTextImmediatelyAndEmbedsOnceForDuplicateCopies) {
@@ -249,6 +257,167 @@ TEST_F(UIControllerEmbeddingTest, ControllerDestructionCancelsOnlyItsOwnRequests
     EXPECT_TRUE(sql->getEmbedding(hashFor(QStringLiteral("pending clipboard text")),
                                   QStringLiteral("model-a"))
                     .isEmpty());
+}
+
+TEST_F(UIControllerEmbeddingTest, SemanticPrefixRanksVectorsAndReusesQueryForTagChanges) {
+    saveVector(QStringLiteral("nearest"), {1.0f, 0.0f});
+    saveVector(QStringLiteral("work result"), {0.8f, 0.6f}, QStringLiteral("WORK"));
+    saveVector(QStringLiteral("farthest"), {0.0f, 1.0f});
+    saveVector(QStringLiteral("other model"), {1.0f, 0.0f}, QStringLiteral("TEXT"),
+               QStringLiteral("model-b"));
+    QVector<ContentListItemData> view;
+    QObject observer;
+    QObject::connect(controller.get(), &UIController::updateUI, &observer,
+                     [&](const QVector<ContentListItemData>& data) { view = data; });
+    QSignalSpy success(&embedding, &EmbeddingService::embeddingSucceeded);
+    controller->requireSearch(QStringLiteral("# query meaning"));
+    EXPECT_TRUE(view.isEmpty());
+    ASSERT_TRUE(waitUntil([&] { return success.count() == 1; }));
+    ASSERT_EQ(server.inputs.size(), 1);
+    EXPECT_EQ(server.inputs[0], QStringLiteral("query meaning"));
+    ASSERT_EQ(view.size(), 3);
+    EXPECT_EQ(view[0].content, QStringLiteral("nearest"));
+    EXPECT_EQ(view[1].content, QStringLiteral("work result"));
+    EXPECT_EQ(view[2].content, QStringLiteral("farthest"));
+    EXPECT_EQ(sql->get().size(), 4);  // Query text is never saved as clipboard content.
+    controller->requireTagFilter(QStringLiteral("WORK"));
+    ASSERT_EQ(view.size(), 1);
+    EXPECT_EQ(view[0].content, QStringLiteral("work result"));
+    controller->requireTagFilter(QString());
+    ASSERT_EQ(view.size(), 3);
+    QTest::qWait(30);
+    EXPECT_EQ(server.inputs.size(), 1);
+}
+
+TEST_F(UIControllerEmbeddingTest, SwitchingToRegexCancelsSemanticSearchAndIgnoresLateResult) {
+    saveVector(QStringLiteral("ordinary match"), {1.0f, 0.0f});
+    saveVector(QStringLiteral("unrelated"), {0.0f, 1.0f});
+    QVector<ContentListItemData> view;
+    QObject observer;
+    QObject::connect(controller.get(), &UIController::updateUI, &observer,
+                     [&](const QVector<ContentListItemData>& data) { view = data; });
+    QSignalSpy failure(&embedding, &EmbeddingService::embeddingFailed);
+    server.delayMs = 150;
+    controller->requireSearch(QStringLiteral("# old query"));
+    ASSERT_TRUE(waitUntil([&] { return server.inputs.size() == 1; }));
+    controller->requireSearch(QStringLiteral("ordinary"));
+    ASSERT_EQ(view.size(), 1);
+    EXPECT_EQ(view[0].content, QStringLiteral("ordinary match"));
+    ASSERT_TRUE(waitUntil([&] { return failure.count() == 1; }));
+    const quint64 oldId = failure.at(0).at(0).toULongLong();
+    embedding.embeddingSucceeded(oldId, EmbeddingResult{{0.0f, 1.0f}, QStringLiteral("model-a")});
+    ASSERT_EQ(view.size(), 1);
+    EXPECT_EQ(view[0].content, QStringLiteral("ordinary match"));
+}
+
+TEST_F(UIControllerEmbeddingTest, ReplacingSemanticQueryUsesOnlyLatestVector) {
+    saveVector(QStringLiteral("first direction"), {1.0f, 0.0f});
+    saveVector(QStringLiteral("second direction"), {0.0f, 1.0f});
+    QVector<ContentListItemData> view;
+    QObject observer;
+    QObject::connect(controller.get(), &UIController::updateUI, &observer,
+                     [&](const QVector<ContentListItemData>& data) { view = data; });
+    QSignalSpy failure(&embedding, &EmbeddingService::embeddingFailed);
+    QSignalSpy success(&embedding, &EmbeddingService::embeddingSucceeded);
+    server.delayMs = 150;
+    controller->requireSearch(QStringLiteral("# first"));
+    ASSERT_TRUE(waitUntil([&] { return server.inputs.size() == 1; }));
+    server.body = R"({"data":[{"embedding":[0,1]}]})";
+    server.delayMs = 1;
+    controller->requireSearch(QStringLiteral("# second"));
+    ASSERT_TRUE(waitUntil([&] { return failure.count() == 1 && success.count() == 1; }));
+    ASSERT_EQ(view.size(), 2);
+    EXPECT_EQ(view.front().content, QStringLiteral("second direction"));
+    const quint64 oldId = failure.at(0).at(0).toULongLong();
+    embedding.embeddingSucceeded(oldId, EmbeddingResult{{1.0f, 0.0f}, QStringLiteral("model-a")});
+    EXPECT_EQ(view.front().content, QStringLiteral("second direction"));
+    EXPECT_EQ(server.inputs.back(), QStringLiteral("second"));
+}
+
+TEST_F(UIControllerEmbeddingTest, OrdinaryQueriesUseRegexIncludingInsideTags) {
+    saveVector(QStringLiteral("Project 123"), {1.0f}, QStringLiteral("WORK"));
+    saveVector(QStringLiteral("Project notes"), {1.0f}, QStringLiteral("WORK"));
+    saveVector(QStringLiteral("#hashtag [draft"), {1.0f});
+    QVector<ContentListItemData> view;
+    QObject observer;
+    QObject::connect(controller.get(), &UIController::updateUI, &observer,
+                     [&](const QVector<ContentListItemData>& data) { view = data; });
+    controller->requireSearch(QStringLiteral("project"));
+    EXPECT_EQ(view.size(), 2);
+    controller->requireSearch(QStringLiteral("^project \\d+$"));
+    ASSERT_EQ(view.size(), 1);
+    EXPECT_EQ(view[0].content, QStringLiteral("Project 123"));
+    controller->requireTagFilter(QStringLiteral("WORK"));
+    ASSERT_EQ(view.size(), 1);
+    EXPECT_EQ(view[0].content, QStringLiteral("Project 123"));
+    controller->requireTagFilter(QString());
+    controller->requireSearch(QStringLiteral("[draft"));
+    ASSERT_EQ(view.size(), 1);
+    controller->requireSearch(QStringLiteral("#hashtag"));
+    ASSERT_EQ(view.size(), 1);
+    EXPECT_EQ(view[0].content, QStringLiteral("#hashtag [draft"));
+    controller->requireSearch(QStringLiteral("# "));
+    EXPECT_EQ(view.size(), 3);
+    controller->requireSearch(QString());
+    EXPECT_EQ(view.size(), 3);
+    QTest::qWait(30);
+    EXPECT_TRUE(server.inputs.isEmpty());
+}
+
+TEST_F(UIControllerEmbeddingTest, SemanticFailureDoesNotRestoreUnrelatedHistory) {
+    saveVector(QStringLiteral("history"), {1.0f, 0.0f});
+    QVector<ContentListItemData> view;
+    QObject observer;
+    QObject::connect(controller.get(), &UIController::updateUI, &observer,
+                     [&](const QVector<ContentListItemData>& data) { view = data; });
+    controller->requireSearch(QString());
+    ASSERT_EQ(view.size(), 1);
+    server.status = 503;
+    server.body = R"({"error":{"message":"unavailable"}})";
+    QSignalSpy failure(&embedding, &EmbeddingService::embeddingFailed);
+    controller->requireSearch(QStringLiteral("# meaning"));
+    ASSERT_TRUE(waitUntil([&] { return failure.count() == 1; }));
+    EXPECT_TRUE(view.isEmpty());
+    embedding.setConfig({});
+    controller->requireSearch(QStringLiteral("# another"));
+    EXPECT_TRUE(view.isEmpty());
+    EXPECT_EQ(sql->get().size(), 1);
+}
+
+TEST_F(UIControllerEmbeddingTest, NewEmbeddingRefreshesSemanticResultsWithoutEmbeddingQueryAgain) {
+    saveVector(QStringLiteral("existing"), {1.0f, 0.0f});
+    QVector<ContentListItemData> view;
+    QObject observer;
+    QObject::connect(controller.get(), &UIController::updateUI, &observer,
+                     [&](const QVector<ContentListItemData>& data) { view = data; });
+    QSignalSpy success(&embedding, &EmbeddingService::embeddingSucceeded);
+    controller->requireSearch(QStringLiteral("# meaning"));
+    ASSERT_TRUE(waitUntil([&] { return success.count() == 1; }));
+    ASSERT_EQ(view.size(), 1);
+    listener.copy(QStringLiteral("new content"));
+    ASSERT_TRUE(waitUntil([&] { return success.count() == 2; }));
+    EXPECT_EQ(view.size(), 2);
+    ASSERT_EQ(server.inputs.size(), 2);
+    EXPECT_EQ(server.inputs[0], QStringLiteral("meaning"));
+    EXPECT_EQ(server.inputs[1], QStringLiteral("new content"));
+}
+
+TEST_F(UIControllerEmbeddingTest, UnnamedDefaultModelIsSharedByContentAndSemanticSearch) {
+    auto config = server.config();
+    config.model.clear();
+    embedding.setConfig(config);
+    server.body = R"({"data":[{"embedding":[1,0]}]})";
+    QSignalSpy success(&embedding, &EmbeddingService::embeddingSucceeded);
+    listener.copy(QStringLiteral("content"));
+    ASSERT_TRUE(waitUntil([&] { return success.count() == 1; }));
+    QVector<ContentListItemData> view;
+    QObject observer;
+    QObject::connect(controller.get(), &UIController::updateUI, &observer,
+                     [&](const QVector<ContentListItemData>& data) { view = data; });
+    controller->requireSearch(QStringLiteral("# meaning"));
+    ASSERT_TRUE(waitUntil([&] { return success.count() == 2; }));
+    ASSERT_EQ(view.size(), 1);
+    EXPECT_EQ(view[0].content, QStringLiteral("content"));
 }
 
 }  // namespace
