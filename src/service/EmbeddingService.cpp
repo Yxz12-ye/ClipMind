@@ -10,7 +10,8 @@
 #include <QTimer>
 #include <QUrl>
 #include <QtGlobal>
-
+#include <cmath>
+#include <limits>
 #include <string_view>
 
 #include "LogService.hpp"
@@ -50,13 +51,25 @@ EmbeddingService::EmbeddingService(QObject* parent, int requestTimeoutMs)
       networkManager(new QNetworkAccessManager(this)),
       requestTimeoutMs(qMax(1, requestTimeoutMs)) {}
 
+void EmbeddingService::setConfig(const EmbeddingConfig& config) {
+    currentConfig = config;
+}
+
+EmbeddingConfig EmbeddingService::config() const {
+    return currentConfig;
+}
+
+quint64 EmbeddingService::embedText(const QString& text) {
+    return embedText(text, currentConfig);
+}
+
 quint64 EmbeddingService::embedText(const QString& text, const EmbeddingConfig& config) {
     const quint64 requestId = nextRequestId++;
 
     if (text.trimmed().isEmpty()) {
-        LogService::warn(kLogModule, "embedding request #{} rejected: empty test text", requestId);
+        LogService::warn(kLogModule, "embedding request #{} rejected: empty text", requestId);
         failLater(requestId, EmbeddingErrorType::InvalidConfiguration,
-                  QStringLiteral("测试文本不能为空"));
+                  QStringLiteral("文本不能为空"));
         return requestId;
     }
 
@@ -79,11 +92,10 @@ quint64 EmbeddingService::embedText(const QString& text, const EmbeddingConfig& 
     payload.insert(QStringLiteral("input"), text);
     payload.insert(QStringLiteral("model"), requestedModel);
 
-    LogService::debug(kLogModule,
-                      "embedding request #{} -> {} (model: '{}', url mode: {}, text length: {})",
-                      requestId, endpoint.toString(QUrl::FullyEncoded), requestedModel,
-                      config.urlMode == EmbeddingUrlMode::BaseUrl ? "base-url" : "full-endpoint",
-                      text.size());
+    LogService::debug(
+        kLogModule, "embedding request #{} -> {} (model: '{}', url mode: {}, text length: {})",
+        requestId, endpoint.toString(QUrl::FullyEncoded), requestedModel,
+        config.urlMode == EmbeddingUrlMode::BaseUrl ? "base-url" : "full-endpoint", text.size());
     if (requestedModel.isEmpty()) {
         LogService::debug(kLogModule,
                           "embedding request #{} carries no model identifier, the server default "
@@ -283,19 +295,21 @@ void EmbeddingService::finishRequest(quint64 requestId) {
     const QJsonArray embeddingArray = embeddingValue.toArray();
     embedding.reserve(embeddingArray.size());
     for (const QJsonValue& value : embeddingArray) {
-        if (!value.isDouble()) {
+        const double number = value.toDouble();
+        if (!value.isDouble() || !std::isfinite(number) ||
+            std::abs(number) > std::numeric_limits<float>::max()) {
             LogService::warn(kLogModule,
-                             "embedding request #{} failed: embedding vector holds a non-numeric "
+                             "embedding request #{} failed: embedding vector holds an invalid "
                              "element at index {}",
                              requestId, embedding.size());
             emit embeddingFailed(
-                requestId,
-                EmbeddingError{EmbeddingErrorType::InvalidResponse,
-                               QStringLiteral("embedding 向量包含非数字元素"), httpStatus});
+                requestId, EmbeddingError{EmbeddingErrorType::InvalidResponse,
+                                          QStringLiteral("embedding 向量包含无效的 float32 数值"),
+                                          httpStatus});
             reply->deleteLater();
             return;
         }
-        embedding.append(static_cast<float>(value.toDouble()));
+        embedding.append(static_cast<float>(number));
     }
 
     QString responseModel = response.value(QStringLiteral("model")).toString().trimmed();

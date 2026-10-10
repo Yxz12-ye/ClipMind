@@ -1,3 +1,6 @@
+#pragma once
+
+#include <QHash>
 #include <QObject>
 
 #include "service/CopyEventListener.hpp"
@@ -15,10 +18,20 @@ private:
     QString currentTagName;
     SearchMode currentSearchMode = SearchMode::None;
 
+    struct PendingEmbedding {
+        QByteArray hash;
+        EmbeddingConfig config;
+    };
+    QHash<quint64, PendingEmbedding> pendingEmbeddings;
+
     void refreshCurrentView();
+    void embedContent(const ContentListItemData& data);
 
 public:
     UIController(QObject* parent = nullptr);
+    // Injected services remain owned by the caller and must outlive the controller.
+    UIController(AbstractCopyEventListener* listener, EmbeddingService* embedding, SQLService* sql,
+                 QObject* parent = nullptr);
     ~UIController();
 
     QVector<ContentListItemData> getCopyDate();
@@ -27,6 +40,7 @@ public:
     // 供设置页等直接访问数据库完成标签持久化
     SQLService* sqlService() const { return sql; }
     EmbeddingService* embeddingService() const { return embedding; }
+    void reloadEmbeddingConfig();
 
 private slots:
     void onCopyTrigged();

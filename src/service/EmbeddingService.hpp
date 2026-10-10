@@ -21,6 +21,8 @@ struct EmbeddingConfig {
     QString url;
     QString model;
     EmbeddingUrlMode urlMode = EmbeddingUrlMode::FullEndpoint;
+
+    bool operator==(const EmbeddingConfig&) const = default;
 };
 
 enum class EmbeddingErrorType {
@@ -53,6 +55,10 @@ public:
     explicit EmbeddingService(QObject* parent = nullptr, int requestTimeoutMs = 30000);
     ~EmbeddingService() override = default;
 
+    void setConfig(const EmbeddingConfig& config);
+    EmbeddingConfig config() const;
+    // Each request captures its configuration; later changes do not affect pending requests.
+    quint64 embedText(const QString& text);
     quint64 embedText(const QString& text, const EmbeddingConfig& config);
     void cancelRequest(quint64 requestId);
 
@@ -74,6 +80,7 @@ private:
     QHash<quint64, PendingRequest> pendingRequests;
     quint64 nextRequestId = 1;
     int requestTimeoutMs;
+    EmbeddingConfig currentConfig;
 
     static bool resolveEndpoint(const QString& url, EmbeddingUrlMode urlMode, QUrl* endpoint,
                                 QString* error);

@@ -246,6 +246,7 @@ MainWindow::MainWindow()
 
     // 提交注册信息: 注册阶段只收集定义, 默认值到这里才写进 SettingService, 之后才能读值
     settingsController->commitDefinitions();
+    controller->reloadEmbeddingConfig();
 
     hideAfterPaste = settingsController->value(QStringLiteral("core/hideAfterPaste")).toBool();
     showTrayIcon = settingsController->value(QStringLiteral("core/showTrayIcon")).toBool();

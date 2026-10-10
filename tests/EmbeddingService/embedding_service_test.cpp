@@ -197,6 +197,7 @@ TEST(EmbeddingServiceTest, RejectsInvalidResponses) {
         QByteArray(R"({"data":[{}]})"),
         QByteArray(R"({"data":[{"embedding":[]}]})"),
         QByteArray(R"({"data":[{"embedding":["bad"]}]})"),
+        QByteArray(R"({"data":[{"embedding":[1e100]}]})"),
     };
 
     for (const QByteArray& response : responses) {
@@ -297,6 +298,39 @@ TEST(EmbeddingServiceTest, ReportsInvalidConfigurationAndNetworkFailure) {
     ASSERT_EQ(failureSpy.count(), 1);
     EXPECT_EQ(qvariant_cast<EmbeddingError>(failureSpy.at(0).at(1)).type,
               EmbeddingErrorType::Network);
+}
+
+TEST(EmbeddingServiceTest, UsesRuntimeConfigurationAndKeepsPendingRequestSnapshot) {
+    FakeEmbeddingServer firstServer;
+    FakeEmbeddingServer secondServer;
+    ASSERT_TRUE(firstServer.start());
+    ASSERT_TRUE(secondServer.start());
+    firstServer.responseDelayMs = 30;
+    firstServer.responseBody = QByteArray(R"({"data":[{"embedding":[1,0]}]})");
+    EmbeddingService service;
+    QSignalSpy successSpy(&service, &EmbeddingService::embeddingSucceeded);
+    QSignalSpy failureSpy(&service, &EmbeddingService::embeddingFailed);
+    auto config = configFor(firstServer, EmbeddingUrlMode::FullEndpoint);
+    config.model = QStringLiteral("first-model");
+    service.setConfig(config);
+    const quint64 requestId = service.embedText(QStringLiteral("runtime text"));
+    service.setConfig(configFor(secondServer, EmbeddingUrlMode::BaseUrl));
+    ASSERT_TRUE(waitForCompletion(&successSpy, &failureSpy));
+    ASSERT_EQ(successSpy.count(), 1);
+    EXPECT_EQ(successSpy.at(0).at(0).toULongLong(), requestId);
+    EXPECT_EQ(qvariant_cast<EmbeddingResult>(successSpy.at(0).at(1)).model,
+              QStringLiteral("first-model"));
+    EXPECT_EQ(QJsonDocument::fromJson(firstServer.requestBody)
+                  .object()
+                  .value(QStringLiteral("input"))
+                  .toString(),
+              QStringLiteral("runtime text"));
+    EXPECT_TRUE(secondServer.requestBody.isEmpty());
+    successSpy.clear();
+    service.embedText(QStringLiteral("next text"));
+    ASSERT_TRUE(waitForCompletion(&successSpy, &failureSpy));
+    ASSERT_EQ(successSpy.count(), 1);
+    EXPECT_EQ(secondServer.requestPath, QStringLiteral("/v1/embeddings"));
 }
 
 int main(int argc, char** argv) {
